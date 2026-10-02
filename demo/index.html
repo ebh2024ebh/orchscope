@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scanning Campaign Replay</title>
+  <meta name="description" content="Offline, anonymized replay of real-time inference of orchestrated Internet-scanning campaigns from network-telescope (darknet) data.">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+  <script>
+    (function () {
+      try {
+        if (window.localStorage.getItem('campaign-demo-theme') === 'dark') {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      } catch (e) { /* storage unavailable: stay on the light default */ }
+    })();
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#campaignList">Skip to campaign list</a>
+
+  <header class="app-header">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+        <rect class="bm-bg" width="32" height="32" rx="8"></rect>
+        <path class="bm-line" d="M9 9.5 21.5 16M9 16h12.5M9 22.5 21.5 16"></path>
+        <circle class="bm-dot" cx="9" cy="9.5" r="2.3"></circle>
+        <circle class="bm-dot" cx="9" cy="16" r="2.3"></circle>
+        <circle class="bm-dot" cx="9" cy="22.5" r="2.3"></circle>
+        <circle class="bm-dot" cx="22.5" cy="16" r="3.6"></circle>
+      </svg>
+      <div class="brand-text">
+        <h1 id="appTitle">Orchestrated scanning campaigns</h1>
+        <p class="subtitle">
+          <span id="telescope">Network telescope</span>
+          <span class="sep" aria-hidden="true">&middot;</span>
+          <span id="windowText">Observation window</span>
+        </p>
+        <div class="badges">
+          <span class="badge badge-anon">
+            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path d="M8 1.6 2.6 3.5v3.9c0 3.3 2.2 5.9 5.4 6.9 3.2-1 5.4-3.6 5.4-6.9V3.5L8 1.6z"></path>
+              <path d="m5.7 8 1.6 1.6 3.1-3.3"></path>
+            </svg>
+            Anonymized offline replay &mdash; no IP addresses
+          </span>
+          <span class="badge badge-synthetic" id="synthBadge" hidden>
+            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path d="M8 1.8 1.6 13.6h12.8L8 1.8z"></path>
+              <path d="M8 6.2v3.4M8 11.5v.1"></path>
+            </svg>
+            Synthetic sample data
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <dl class="tiles" aria-label="Summary for the replay cursor">
+      <div class="tile">
+        <dt>Source profiles</dt>
+        <dd class="tile-value" id="tProfiles">&ndash;</dd>
+        <dd class="tile-sub" id="tProfilesSub">in the window</dd>
+      </div>
+      <div class="tile">
+        <dt>Campaigns reported</dt>
+        <dd class="tile-value" id="tCampaigns">&ndash;</dd>
+        <dd class="tile-sub" id="tCampaignsSub"></dd>
+      </div>
+      <div class="tile">
+        <dt>Orchestrated</dt>
+        <dd class="tile-value" id="tOrch">&ndash;</dd>
+        <dd class="tile-sub" id="tOrchSub"></dd>
+      </div>
+      <div class="tile">
+        <dt>Bots in campaigns</dt>
+        <dd class="tile-value" id="tBots">&ndash;</dd>
+        <dd class="tile-sub" id="tBotsSub"></dd>
+      </div>
+    </dl>
+
+    <div class="header-actions">
+      <button type="button" class="btn btn-ghost" id="themeToggle" aria-pressed="false">
+        <svg class="icon icon-moon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path d="M13.2 10.1A5.6 5.6 0 0 1 5.9 2.8a5.6 5.6 0 1 0 7.3 7.3z"></path>
+        </svg>
+        <svg class="icon icon-sun" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <circle cx="8" cy="8" r="2.9"></circle>
+          <path d="M8 1.2v1.6M8 13.2v1.6M1.2 8h1.6M13.2 8h1.6M3.2 3.2l1.1 1.1M11.7 11.7l1.1 1.1M3.2 12.8l1.1-1.1M11.7 4.3l1.1-1.1"></path>
+        </svg>
+        <span class="btn-label" id="themeLabel">Dark theme</span>
+      </button>
+    </div>
+  </header>
+
+  <section class="controls" id="controls" aria-label="Replay controls">
+    <div class="ctl-buttons">
+      <button type="button" class="btn btn-primary btn-play" id="playBtn" aria-label="Play replay">
+        <svg class="icon icon-play" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4.5 2.8v10.4L13 8z"></path></svg>
+        <svg class="icon icon-pause" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M4 2.8h2.8v10.4H4zM9.2 2.8H12v10.4H9.2z"></path></svg>
+        <span class="btn-label" id="playLabel">Play</span>
+      </button>
+      <div class="seg" role="group" aria-label="Replay speed in hours per second" id="speedGroup">
+        <button type="button" class="seg-btn" data-speed="1" aria-pressed="true" title="1 hour per second">1&times;</button>
+        <button type="button" class="seg-btn" data-speed="4" aria-pressed="false" title="4 hours per second">4&times;</button>
+        <button type="button" class="seg-btn" data-speed="16" aria-pressed="false" title="16 hours per second">16&times;</button>
+      </div>
+    </div>
+
+    <div class="ctl-time">
+      <div class="time-main" id="timeMain">&ndash;</div>
+      <div class="time-sub" id="timeSub"></div>
+      <div class="time-feed" id="feed" aria-live="polite"></div>
+    </div>
+
+    <div class="ctl-tracks">
+      <div class="track">
+        <span class="track-label">Records / h</span>
+        <canvas class="track-canvas" id="sparkRecords" role="img" aria-label="Hourly records at the telescope up to the replay cursor"></canvas>
+        <span class="track-val" id="valRecords">&ndash;</span>
+      </div>
+      <div class="track">
+        <span class="track-label">Sources / h</span>
+        <canvas class="track-canvas" id="sparkSources" role="img" aria-label="Hourly unique sources at the telescope up to the replay cursor"></canvas>
+        <span class="track-val" id="valSources">&ndash;</span>
+      </div>
+      <div class="track">
+        <label class="track-label" for="scrubber">Replay hour</label>
+        <input type="range" id="scrubber" class="scrubber" min="0" max="167" step="1" value="167">
+        <span class="track-val" id="valHour">&ndash;</span>
+      </div>
+    </div>
+  </section>
+
+  <main class="layout" id="main">
+    <section class="panel panel-list" aria-labelledby="listTitle">
+      <div class="panel-head">
+        <div class="panel-title-row">
+          <h2 id="listTitle">Campaigns</h2>
+          <span class="count-pill" id="listCount"></span>
+        </div>
+        <div class="search">
+          <svg class="icon search-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <circle cx="7" cy="7" r="4.6"></circle><path d="m10.4 10.4 3.6 3.6"></path>
+          </svg>
+          <input type="search" id="search" placeholder="Search port, tool or strategy" aria-label="Search campaigns by port, tool or strategy" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="chips" role="group" aria-label="Filter campaigns" id="chips">
+          <button type="button" class="chip" data-filter="all" aria-pressed="true">All <span class="chip-n" data-count="all"></span></button>
+          <button type="button" class="chip" data-filter="orch" aria-pressed="false">Orchestrated <span class="chip-n" data-count="orch"></span></button>
+          <button type="button" class="chip" data-filter="TCP" aria-pressed="false">TCP <span class="chip-n" data-count="TCP"></span></button>
+          <button type="button" class="chip" data-filter="UDP" aria-pressed="false">UDP <span class="chip-n" data-count="UDP"></span></button>
+        </div>
+        <div class="sort-row">
+          <label for="sortKey">Sort by</label>
+          <select id="sortKey" class="select">
+            <option value="bots">Bots</option>
+            <option value="severity">Severity (expected)</option>
+            <option value="z">Synchrony z</option>
+            <option value="detect">First report</option>
+          </select>
+          <button type="button" class="btn btn-icon" id="sortDir" aria-label="Sort descending" title="Toggle sort direction">
+            <svg class="icon icon-desc" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 2.5v11M4 9.5l4 4 4-4"></path></svg>
+            <svg class="icon icon-asc" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M8 13.5v-11M4 6.5l4-4 4 4"></path></svg>
+          </button>
+        </div>
+      </div>
+      <div class="panel-body list-body" id="listBody">
+        <ul class="clist" id="campaignList" role="listbox" aria-labelledby="listTitle" tabindex="-1"></ul>
+        <div class="empty" id="listEmpty" hidden></div>
+      </div>
+    </section>
+
+    <section class="panel panel-timeline" aria-labelledby="tlTitle">
+      <div class="panel-head">
+        <div class="panel-title-row">
+          <h2 id="tlTitle">Timeline</h2>
+          <span class="panel-hint">Bars run from first to last activity. Click a bar to inspect it, or click the time axis to move the cursor.</span>
+        </div>
+        <ul class="legend" aria-label="Timeline legend">
+          <li><span class="key key-orch" aria-hidden="true"></span>Orchestrated</li>
+          <li><span class="key key-indep" aria-hidden="true"></span>Independent</li>
+          <li><span class="key key-undet" aria-hidden="true"></span>Undetermined (too few peers)</li>
+          <li><span class="key key-ramp" aria-hidden="true"></span>Darker = more bots active that hour</li>
+          <li><span class="key key-det" aria-hidden="true"></span>First report</li>
+          <li><span class="key key-future" aria-hidden="true"></span>After the cursor</li>
+        </ul>
+      </div>
+      <div class="tl-wrap" id="tlWrap">
+        <canvas class="tl-axis" id="tlAxis" role="img" aria-label="Time axis. Click or drag to move the replay cursor."></canvas>
+        <div class="tl-scroll" id="tlScroll">
+          <canvas class="tl-canvas" id="tlCanvas" role="img" aria-label="Campaign timeline"></canvas>
+          <div class="tl-spacer" id="tlSpacer"></div>
+        </div>
+        <div class="empty tl-empty" id="tlEmpty" hidden></div>
+      </div>
+    </section>
+
+    <section class="panel panel-detail" aria-labelledby="detailTitle">
+      <div class="panel-head">
+        <div class="panel-title-row">
+          <h2 id="detailTitle">Campaign detail</h2>
+        </div>
+      </div>
+      <div class="panel-body detail-body" id="detailBody"></div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <details class="about">
+      <summary>How to read this demo</summary>
+      <dl class="glossary">
+        <dt>Campaign</dt>
+        <dd>A group of scanning sources that the engine links by shared machinery: target ports, header fingerprint, probing strategy and operational behavior. Timing is not used for grouping; it is reserved for the coordination test.</dd>
+        <dt>Orchestrated</dt>
+        <dd>The campaign's bots are active together more than both nulls allow: each bot's own activity shifted by whole days, and activity-matched peers on the same port. Independent campaigns share machinery but show no coordination beyond those nulls.</dd>
+        <dt>Undetermined</dt>
+        <dd>The campaign makes up most of its port's sources, so there are too few peers to run the population null; coordination is not judged.</dd>
+        <dt>Synchrony z</dt>
+        <dd>How far the campaign's temporal synchrony sits above the null model, in standard deviations.</dd>
+        <dt>First report</dt>
+        <dd>The hourly batch after which the online engine first reported the campaign. During replay a campaign appears only from that hour on.</dd>
+        <dt>Probing strategy</dt>
+        <dd>Each dot is a sampled destination: its time, and its relative position inside the monitored block. Addresses are never shown.</dd>
+        <dt>Rate and coverage</dt>
+        <dd>Packets per hour per bot as seen by the telescope (median), and the share of the monitored block the campaign probed.</dd>
+        <dt>openjev</dt>
+        <dd>An AI decision model that scores each option from its logits and calibrates the result. Its outputs are probabilities, not ground truth.</dd>
+      </dl>
+    </details>
+    <p class="footer-note" id="metaNote"></p>
+    <p class="footer-keys">
+      Keyboard: <kbd>Space</kbd> play or pause &middot; <kbd>&larr;</kbd> <kbd>&rarr;</kbd> step one hour &middot;
+      <kbd>Shift</kbd> + <kbd>&larr;</kbd> <kbd>&rarr;</kbd> step one day &middot; <kbd>&uarr;</kbd> <kbd>&darr;</kbd> move through the campaign list.
+    </p>
+    <p class="footer-offline">Runs entirely from local files and makes no network requests. Colors use the Okabe&ndash;Ito color-blind-safe palette.</p>
+  </footer>
+
+  <div class="tooltip" id="tooltip" aria-hidden="true" hidden></div>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
