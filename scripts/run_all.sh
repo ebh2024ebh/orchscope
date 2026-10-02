@@ -34,6 +34,8 @@ PEER_RATIO=5 $PY -W ignore "$CODE/negctl.py" negctl2.json top1
 $PY -W ignore "$CODE/revision_checks.py" orch      # -> rev_orch.json
 $PY -W ignore "$CODE/revision_checks.py" tzneg     # -> rev_tzneg.json (same-country control)
 $PY -W ignore "$CODE/revision_checks.py" pemp      # -> rev_pemp.json (Monte Carlo vs Gaussian)
+$PY -W ignore "$CODE/revision_checks.py" negp      # -> rev_negp.json (control replay, all p-values)
+$PY -W ignore "$CODE/revision_checks.py" refine    # -> rev_refine.json (10^4 surrogates for p < 0.01)
 
 # 5. case study, largest orchestrated campaigns, openjev labels, drift, demo data
 $PY -W ignore "$CODE/case_study.py"                # -> week_case.json
