@@ -528,16 +528,24 @@ def zscore_p(t_obs, null):
 
 # p-values of the synchrony tests. "mc" (default): exact Monte Carlo p-values
 # (1 + #{T_b >= T}) / (B + 1), valid by construction when the observed campaign is exchangeable
-# with its surrogates under the null; two stages: B surrogates, and MC_B2 fresh surrogates when the
-# stage-1 p-value is <= MC_SCREEN (fresh draws keep the stage-2 p-value valid). "normal": the
+# with its surrogates under the null; up to three stages: B surrogates, MC_B2 fresh surrogates when
+# p <= MC_SCREEN, and MC_B3 fresh ones when then p <= MC_SCREEN2 (fresh draws keep each stage's
+# p-value valid; the last stage lifts the 1/(MC_B2+1) floor that would stall BH). "normal": the
 # Gaussian tail of the surrogate distribution (optimistic for skewed nulls; kept for comparison).
 PVAL = os.environ.get("PVAL", "mc")
 MC_B2 = int(os.environ.get("MC_B2", "1000"))
 MC_SCREEN = float(os.environ.get("MC_SCREEN", "0.1"))
+MC_B3 = int(os.environ.get("MC_B3", "10000"))
+MC_SCREEN2 = float(os.environ.get("MC_SCREEN2", "0.01"))
+MC_CHUNK = 2000                                        # surrogates per draw call (memory bound)
 
 
 def mc_p(t_obs, null):
     return float((1 + np.sum(null >= t_obs - 1e-12)) / (len(null) + 1))
+
+
+def _draw_chunked(draw, n):
+    return np.concatenate([draw(min(MC_CHUNK, n - k)) for k in range(0, n, MC_CHUNK)])
 
 
 def two_stage_p(t_obs, draw, B):
@@ -546,9 +554,10 @@ def two_stage_p(t_obs, draw, B):
     if PVAL != "mc":
         return zscore_p(t_obs, null)
     p, z = mc_p(t_obs, null), zscore_p(t_obs, null)[1]
-    if p <= MC_SCREEN and MC_B2 > B:
-        null = draw(MC_B2)
-        p, z = mc_p(t_obs, null), zscore_p(t_obs, null)[1]
+    for screen, nb in ((MC_SCREEN, MC_B2), (MC_SCREEN2, MC_B3)):
+        if p <= screen and nb > len(null):
+            null = _draw_chunked(draw, nb)
+            p, z = mc_p(t_obs, null), zscore_p(t_obs, null)[1]
     return p, z
 
 
@@ -600,7 +609,8 @@ def coordination_test(members, bits_all, H, rng, B=200, unit=None, local=None):
 
 
 class Pops:
-    """Port populations stratified by activity volume, for the population null."""
+    """Port (and port x country) populations stratified by activity volume, for the population
+    null."""
 
     def __init__(self, df, bits_all, key="portsig"):
         import pandas as pd
@@ -612,12 +622,19 @@ class Pops:
         self.port_all = {p: np.asarray(v) for p, v in
                          pd.Series(self.ports).groupby(self.ports).indices.items()}
         self.bin_all = {int(b): np.where(self.pbin == b)[0] for b in np.unique(self.pbin)}
+        self.cc = (df.cc.astype(str).to_numpy() if "cc" in df.columns
+                   else np.full(len(df), "", dtype=object))
+        g = pd.DataFrame({"p": self.ports, "c": self.cc, "b": self.pbin}).groupby(["p", "c", "b"]).indices
+        self.port_cc_bin = {(p, c, int(b)): np.asarray(v) for (p, c, b), v in g.items()}
+        g = pd.DataFrame({"p": self.ports, "c": self.cc}).groupby(["p", "c"]).indices
+        self.port_cc_all = {(p, c): np.asarray(v) for (p, c), v in g.items()}
         self.packed = pack_bits(bits_all)
         self.is_mem = np.zeros(len(df), dtype=bool)
 
 
 PEER_RATIO = float(os.environ.get("PEER_RATIO", "1"))   # testable: port has >= this x non-member peers
 PEER_KEY = os.environ.get("PEER_KEY", "top1")   # peer population: primary port (or "portsig")
+PEER_CC = os.environ.get("PEER_CC", "1") == "1"  # match peers on country too (shared time zone)
 
 
 def peer_pool(P, port, b, min_pool=40):
@@ -634,6 +651,17 @@ def peer_pool(P, port, b, min_pool=40):
         if len(pool) - int(P.is_mem[pool].sum()) >= min_pool:
             return pool
     return P.port_all[port]
+
+
+def peer_pool_cc(P, port, c, b, min_pool=40):
+    """Peers of the same port AND country for activity bin b (exact bin, else adjacent bins, else
+    any bin of that country on the port); if the country has too few non-member peers on the
+    port, the port-only pool of peer_pool. Requires P.is_mem to mark the campaign's members."""
+    cands = [P.port_cc_bin.get((port, c, b + d)) for d in (0, -1, 1)]
+    for pool in cands + [P.port_cc_all.get((port, c))]:
+        if pool is not None and len(pool) - int(P.is_mem[pool].sum()) >= min_pool:
+            return pool
+    return peer_pool(P, port, b, min_pool)
 
 
 def campaign_port(P, members):
@@ -657,9 +685,10 @@ def population_test(members, port, P, rng, B=200, local=None, min_pool=40):
     """Synchrony test against activity-matched peers (population null).
 
     Null: the campaign is no more aligned than other sources probing the same port, matched
-    member by member on activity volume (active-hour bin). Peers share the port-wide modulation
-    of activity across days, so that modulation cannot masquerade as coordination. Campaign
-    members are never drawn as their own peers."""
+    member by member on activity volume (active-hour bin) and, with PEER_CC, on country (shared
+    time zone and national events), falling back to port peers for countries with too few.
+    Peers share the port-wide modulation of activity across days, so that modulation cannot
+    masquerade as coordination. Campaign members are never drawn as their own peers."""
     members = np.asarray(members)
     need, I, J = local if local is not None else local_pairs(len(members), rng)
     if len(I) == 0:
@@ -667,14 +696,20 @@ def population_test(members, port, P, rng, B=200, local=None, min_pool=40):
     mem_need = members[need]
     t_obs = float(coact_vec(P.packed[mem_need][None], I, J)[0])
     bins = P.pbin[mem_need]
-    pools = {int(b): peer_pool_marked(P, members, port, int(b), min_pool) for b in np.unique(bins)}
+    strata = ([(P.cc[i], int(b)) for i, b in zip(mem_need, bins)] if PEER_CC
+              else [("", int(b)) for b in bins])
+    keys = sorted(set(strata))
+    lab = np.array([keys.index(s) for s in strata])
+    pools = {k: (peer_pool_cc_marked(P, members, port, c, b, min_pool) if PEER_CC
+                 else peer_pool_marked(P, members, port, b, min_pool))
+             for k, (c, b) in enumerate(keys)}
 
     def draw(nb):
         P.is_mem[members] = True
         try:
             draws = np.empty((nb, len(need)), dtype=np.int64)
             for b, pool in pools.items():
-                cols = np.where(bins == b)[0]
+                cols = np.where(lab == b)[0]
                 d = pool[rng.integers(0, len(pool), size=(nb, len(cols)))]
                 for _ in range(8):                    # redraw any campaign member
                     bad = P.is_mem[d]
@@ -693,6 +728,14 @@ def peer_pool_marked(P, members, port, b, min_pool):
     P.is_mem[members] = True
     try:
         return peer_pool(P, port, b, min_pool)
+    finally:
+        P.is_mem[members] = False
+
+
+def peer_pool_cc_marked(P, members, port, c, b, min_pool):
+    P.is_mem[members] = True
+    try:
+        return peer_pool_cc(P, port, c, b, min_pool)
     finally:
         P.is_mem[members] = False
 
@@ -831,6 +874,31 @@ def bh(pvals, q=0.05):
     return out
 
 
+# Campaigns are tested independently, each with its own seed, so the result does not depend on
+# how many worker processes run the tests (TEST_PROCS; forked workers share the profiles).
+TEST_PROCS = int(os.environ.get("TEST_PROCS", "24"))
+_TP = {}
+
+
+def _test_one(k):
+    c = _TP["camps"][k]
+    rng = np.random.default_rng((_TP["seed"], int(c["id"])))
+    return k, sync_test(c["members"], None, _TP["bits"], _TP["H"], _TP["P"], rng, B=_TP["B"])
+
+
+def run_tests(camps, idx, bits_all, H, P, B, seed):
+    import multiprocessing as mp
+    _TP.update(camps=camps, bits=bits_all, H=H, P=P, B=B, seed=seed)
+    try:
+        if (TEST_PROCS > 1 and len(idx) > 50 and "fork" in mp.get_all_start_methods()
+                and not mp.current_process().daemon):
+            with mp.get_context("fork").Pool(TEST_PROCS) as pool:
+                return dict(pool.map(_test_one, idx, chunksize=8))
+        return dict(_test_one(k) for k in idx)
+    finally:
+        _TP.clear()
+
+
 def enhanced_infer(df, H, min_size=10, drop=(), use_fp=True, use_hdb=True, use_test=True, seed=7,
                    B=200, use_sync=False):
     """Two-level inference. Level 1: machinery campaigns (fingerprint blocks + HDBSCAN-eps on
@@ -910,11 +978,11 @@ def enhanced_infer(df, H, min_size=10, drop=(), use_fp=True, use_hdb=True, use_t
     if use_test and camps:
         P = Pops(df, bits_all, key=PEER_KEY)
         test_idx = [k for k, c in enumerate(camps) if not c["residue"]]   # residue is never tested
+        res = run_tests(camps, test_idx, bits_all, H, P, B, seed)
         pv, pv_rot = [], []
         for k in test_idx:
-            r = sync_test(camps[k]["members"], None, bits_all, H, P, rng, B=B)
-            camps[k].update(r)
-            pv.append(r["p"]); pv_rot.append(r["p_rot"])
+            camps[k].update(res[k])
+            pv.append(res[k]["p"]); pv_rot.append(res[k]["p_rot"])
         sig, sig_rot = bh(pv), bh(pv_rot)
         dec = {k: (bool(s), bool(sr)) for k, s, sr in zip(test_idx, sig, sig_rot)}
         for k, c in enumerate(camps):

@@ -296,7 +296,8 @@ def fig_case():
         ax.set_xticklabels([str(24 + d) for d in range(0, H // 24, 2)], fontsize=5.8)
         ax.tick_params(length=0, pad=1.5)
         ax.set_yticks([])
-        sub = "$T$=%.2f" % pn["T"] + ("" if pn["z"] is None else ", $z$=%.0f" % pn["z"])
+        sub = "$T$=%.2f" % pn["T"] + ("" if pn["z"] is None else
+                                      ", $z$=" + ("%.0f" if abs(pn["z"]) >= 10 else "%.1f") % pn["z"])
         ax.set_title("(%s) %s\n%s" % ("abcd"[k], titles.get(pn["kind"], pn["kind"]), sub),
                      loc="left", fontsize=6.2, linespacing=1.1)
         for s in ax.spines.values():

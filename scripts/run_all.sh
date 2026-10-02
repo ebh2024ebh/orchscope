@@ -35,7 +35,7 @@ $PY -W ignore "$CODE/revision_checks.py" orch      # -> rev_orch.json
 $PY -W ignore "$CODE/revision_checks.py" tzneg     # -> rev_tzneg.json (same-country control)
 $PY -W ignore "$CODE/revision_checks.py" pemp      # -> rev_pemp.json (Monte Carlo vs Gaussian)
 $PY -W ignore "$CODE/revision_checks.py" negp      # -> rev_negp.json (control replay, all p-values)
-$PY -W ignore "$CODE/revision_checks.py" refine    # -> rev_refine.json (10^4 surrogates for p < 0.01)
+PEER_CC=0 $PY -W ignore "$CODE/revision_checks.py" tzneg --out rev_tzneg_port.json   # port-only peers
 
 # 5. case study, largest orchestrated campaigns, openjev labels, drift, demo data
 $PY -W ignore "$CODE/case_study.py"                # -> week_case.json
@@ -70,8 +70,10 @@ for k in $(seq 0 7); do
 done
 wait
 awk 'FNR==1 && NR!=1 {next} {print}' prof/bg24_*.tsv > prof_bg24.tsv
+export TEST_PROCS=1   # simulate.py parallelizes over runs; each run tests its campaigns serially
 $PY -W ignore "$CODE/simulate.py" --bg prof_bg24.tsv --out sim_results.json --procs 16 --seeds 3
 $PY -W ignore "$CODE/simulate.py" --bg prof_bg24.tsv --out sim_abl10.json --procs 16 --seeds 10 --only-abl --hp
+unset TEST_PROCS
 
 # 9. DarkVec baseline: simulated seeds and one real day
 $PY -W ignore "$CODE/dv_sim.py" prep --seeds 10
