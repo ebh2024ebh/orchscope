@@ -38,13 +38,15 @@ def match(prev, cur, thr=0.5):
 
 
 def infer(cache, n_hours, B, seed):
-    """Inference over the cached profiles; the synchrony test sees the trailing whole days."""
+    """Inference over the cached profiles; the synchrony test sees the trailing whole days and
+    decides only from two whole days on (whole-day shifts need at least two days)."""
     df = pd.DataFrame(list(cache.values()), columns=E.PROF_COLS)
     days = max(1, n_hours // 24)
     off = n_hours - 24 * days
     if off:
         df["hbits"] = ["%x" % (int(b, 16) >> off) if b else "0" for b in df.hbits]
-    labels, camps = E.enhanced_infer(df, 24 * days, min_size=10, B=B, seed=seed)
+    labels, camps = E.enhanced_infer(df, 24 * days, min_size=10, B=B, seed=seed,
+                                     use_test=days >= 2)
     return df, labels, camps
 
 

@@ -95,12 +95,14 @@ def main():
                                   "port": panel["port"], "fp": panel["fp"],
                                   "strategy": c["strategy"], "T": coact(S, rng),
                                   "rows": pack(S)})
-            # population null: activity-matched peers on the same port (never members)
+            # population null: activity-matched peers on the same port (never members), of the
+            # member's country when PEER_CC and the country has enough peers on the port
             full = np.where(labels == c["id"])[0]
             P.is_mem[full] = True
             peers = []
             for i in mem:
-                pool = E.peer_pool(P, str(c["portsig"]), int(P.pbin[i]))
+                pool = (E.peer_pool_cc(P, str(c["portsig"]), P.cc[i], int(P.pbin[i])) if E.PEER_CC
+                        else E.peer_pool(P, str(c["portsig"]), int(P.pbin[i])))
                 for _ in range(50):
                     j = int(pool[rng.integers(len(pool))])
                     if not P.is_mem[j]:

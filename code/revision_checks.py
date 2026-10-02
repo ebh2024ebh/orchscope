@@ -14,8 +14,10 @@
   negp   : the week's same-port negative control re-run exactly (same campaigns and order, seed
            and B as analyze_week.py), keeping every p-value: unadjusted rejection rates, so
            "BH flags none" is not an artifact of the Monte Carlo p-value floor -> rev_negp.json
-  refine : both negative controls replayed exactly; every p < 0.01 re-tested with 10^4 fresh
-           surrogates per null, then BH re-applied                       -> rev_refine.json
+  refine : both negative controls replayed; every p < 0.01 re-tested with 10^4 fresh surrogates
+           per null, then BH re-applied (superseded by the engine's third surrogate stage)
+  retest : every non-residue campaign of the week re-tested with the current engine settings
+           (PEER_CC, MC_*), compared with the week run                   -> rev_retest.json
 """
 import argparse, collections, glob, json, os, sys, time
 from multiprocessing import Pool
@@ -207,6 +209,43 @@ def cmd_negp(out, B=100):
     json.dump(r, open(out, "w"))
 
 
+# ----------------------------------------------------------------------------- retest
+def _retest_one(cid):
+    mem = np.where(G["labels"] == cid)[0]
+    r = E.sync_test(mem, None, G["bits"], H, G["P"], np.random.default_rng(1000 + cid), B=200)
+    return cid, r["p"], r["p_rot"], r["p_pop"], r["testable"]
+
+
+def cmd_retest(out, procs=40):
+    """Every non-residue campaign of the week re-tested with the engine's current settings (peer
+    matching PEER_CC, surrogate stages MC_*), BH as in the pipeline, compared with the week run."""
+    _init()
+    L = G["L"]
+    ids = [int(c) for c, r in zip(L.id, L.residue) if not r]
+    t0 = time.time()
+    with Pool(procs) as pool:
+        res = pool.map(_retest_one, ids, chunksize=8)
+    p = np.array([x[1] for x in res])
+    sig = E.bh(p)
+    new = {x[0]: bool(s) for x, s in zip(res, sig)}
+    Li = L.set_index("id")
+    old = {cid: bool(Li.at[cid, "orchestrated"]) for cid in ids}
+    one_cc = {cid: int(Li.at[cid, "n_cc"]) == 1 for cid in ids}
+    o_set = {c for c in ids if old[c]}
+    n_set = {c for c in ids if new[c]}
+    out_d = {"peer_cc": E.PEER_CC, "mc": [200, E.MC_B2, E.MC_B3], "campaigns": len(ids),
+             "testable": int(sum(x[4] for x in res)), "orchestrated_old": len(o_set),
+             "orchestrated_new": len(n_set), "both": len(o_set & n_set),
+             "old_only": len(o_set - n_set), "new_only": len(n_set - o_set),
+             "old_single_cc": sum(one_cc[c] for c in o_set),
+             "new_single_cc": sum(one_cc[c] for c in n_set),
+             "old_only_single_cc": sum(one_cc[c] for c in o_set - n_set),
+             "floor_n": int((p <= 1.0 / (max(E.MC_B2, E.MC_B3) + 1) + 1e-12).sum()),
+             "seconds": round(time.time() - t0), "orchestrated_ids": sorted(n_set)}
+    print(json.dumps({k: v for k, v in out_d.items() if k != "orchestrated_ids"}))
+    json.dump(out_d, open(out, "w"))
+
+
 # ----------------------------------------------------------------------------- refine
 _R = {}
 
@@ -280,10 +319,12 @@ def pop_null(members, port, P, rng, B, local, min_pool=40):
     P.is_mem[members] = True
     try:
         bins = P.pbin[mem_need]
+        cc = P.cc[mem_need] if E.PEER_CC else np.full(len(mem_need), "")   # strata as the engine
         draws = np.empty((B, len(need)), dtype=np.int64)
-        for b in np.unique(bins):
-            cols = np.where(bins == b)[0]
-            pool = E.peer_pool(P, port, int(b), min_pool)
+        for c, b in sorted(set(zip(cc, bins.tolist()))):
+            cols = np.where((cc == c) & (bins == b))[0]
+            pool = (E.peer_pool_cc(P, port, c, int(b), min_pool) if E.PEER_CC
+                    else E.peer_pool(P, port, int(b), min_pool))
             d = pool[rng.integers(0, len(pool), size=(B, len(cols)))]
             for _ in range(8):
                 bad = P.is_mem[d]
@@ -353,7 +394,7 @@ def cmd_pemp(out, B=1000, procs=40):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["orch", "tzneg", "pemp", "negp", "refine"])
+    ap.add_argument("cmd", choices=["orch", "tzneg", "pemp", "negp", "refine", "retest"])
     ap.add_argument("--out")
     ap.add_argument("--B", type=int)
     ap.add_argument("--procs", type=int, default=40)
@@ -366,5 +407,7 @@ if __name__ == "__main__":
         cmd_negp(a.out or "rev_negp.json", B=a.B or 100)
     elif a.cmd == "refine":
         cmd_refine(a.out or "rev_refine.json", B2=a.B or 10000, procs=a.procs)
+    elif a.cmd == "retest":
+        cmd_retest(a.out or "rev_retest.json", procs=a.procs)
     else:
         cmd_pemp(a.out or "rev_pemp.json", B=a.B or 1000, procs=a.procs)
