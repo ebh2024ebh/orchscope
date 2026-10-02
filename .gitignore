@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+out/
+# ORION-derived per-source data must never be committed
+raw/
+red/
+prof/
+dv/
+dv_real/
+*.zst
+*.npy
+*_assign.tsv
+prof_bg24.tsv

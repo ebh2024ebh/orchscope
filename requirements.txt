@@ -1,0 +1,10 @@
+# Tested with Python 3.12 (analysis server) and 3.13 (figures): numpy 2.3, scipy 1.16,
+# pandas 3.0, scikit-learn 1.7, matplotlib 3.10, zstandard 0.25, numba 0.65, networkx 3.7.
+numpy>=2.0          # np.bitwise_count (vectorized popcounts)
+scipy>=1.11
+pandas>=2.1
+scikit-learn>=1.3   # sklearn.cluster.HDBSCAN
+matplotlib>=3.8
+zstandard>=0.22     # reading .tsv.zst reduced files
+numba>=0.59         # DarkVec baseline only
+networkx>=3.2       # DarkVec baseline only (Louvain)
