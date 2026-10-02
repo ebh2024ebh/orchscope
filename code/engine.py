@@ -977,14 +977,16 @@ def cmd_infer(args):
     print(json.dumps({k: v for k, v in out.items() if k != "campaigns"}))
 
 
-def negative_control(df, H, camps, rng, B=100, reps=1):
+def negative_control(df, H, camps, rng, B=100, reps=1, keep_p=False):
     """Empirical false-positive rate on REAL data. For every testable campaign, a pseudo-campaign
     of the same size is drawn at random from its port population EXCLUDING its own members, so it
-    mixes unrelated sources of the same service, and goes through the identical test + BH."""
+    mixes unrelated sources of the same service, and goes through the identical test + BH.
+    keep_p=True also returns every pseudo-campaign's p-values (two-null and rotation alone) and
+    members (row indices)."""
     bits_all = [int(b, 16) if b else 0 for b in df.hbits]
     P = Pops(df, bits_all, key=PEER_KEY)
     dmode = pd_numeric(df["dmode"]) if "dmode" in df.columns else None
-    pv, pv_rot = [], []
+    pv, pv_rot, mems = [], [], []
     n_res = 0
     for _ in range(reps):
         for c in camps:
@@ -1000,15 +1002,19 @@ def negative_control(df, H, camps, rng, B=100, reps=1):
                 n_res += 1
                 continue                          # a residue pseudo-group would not be tested
             r = sync_test(pseudo, None, bits_all, H, P, rng, B=B)
-            pv.append(r["p"]); pv_rot.append(r["p_rot"])
+            pv.append(r["p"]); pv_rot.append(r["p_rot"]); mems.append(pseudo)
     sig, sig_rot = bh(pv), bh(pv_rot)
     nan = float("nan")
-    return {"pseudo_campaigns": len(pv), "pseudo_residue_skipped": n_res, "flagged": int(sig.sum()),
-            "fpr": float(sig.mean()) if len(pv) else nan,
-            "raw_p_lt_0.05": float(np.mean(np.array(pv) < 0.05)) if pv else nan,
-            "flagged_rot": int(sig_rot.sum()),
-            "fpr_rot": float(sig_rot.mean()) if len(pv) else nan,
-            "raw_rot_p_lt_0.05": float(np.mean(np.array(pv_rot) < 0.05)) if pv else nan}
+    res = {"pseudo_campaigns": len(pv), "pseudo_residue_skipped": n_res, "flagged": int(sig.sum()),
+           "fpr": float(sig.mean()) if len(pv) else nan,
+           "raw_p_lt_0.05": float(np.mean(np.array(pv) < 0.05)) if pv else nan,
+           "flagged_rot": int(sig_rot.sum()),
+           "fpr_rot": float(sig_rot.mean()) if len(pv) else nan,
+           "raw_rot_p_lt_0.05": float(np.mean(np.array(pv_rot) < 0.05)) if pv else nan}
+    if keep_p:
+        res["p"], res["p_rot"] = [float(x) for x in pv], [float(x) for x in pv_rot]
+        res["members"] = mems
+    return res
 
 
 def main():

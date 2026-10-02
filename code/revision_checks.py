@@ -11,6 +11,11 @@
   pemp   : p-value robustness: every campaign re-tested with B=1000 surrogates; BH decisions from
            the normal-tail p-values vs. exact empirical p-values (1+#{null>=T})/(B+1), compared
            with the reported B=200 decisions                             -> rev_pemp.json
+  negp   : the week's same-port negative control re-run exactly (same campaigns and order, seed
+           and B as analyze_week.py), keeping every p-value: unadjusted rejection rates, so
+           "BH flags none" is not an artifact of the Monte Carlo p-value floor -> rev_negp.json
+  refine : both negative controls replayed exactly; every p < 0.01 re-tested with 10^4 fresh
+           surrogates per null, then BH re-applied                       -> rev_refine.json
 """
 import argparse, collections, glob, json, os, sys, time
 from multiprocessing import Pool
@@ -127,14 +132,13 @@ def cmd_orch(out):
 
 
 # ----------------------------------------------------------------------------- tzneg
-def cmd_tzneg(out, B=100, seed=13):
-    df, labels, L = load()
+def tz_control(df, labels, L, B=100, seed=13):
+    """Same-port, same-country pseudo-campaigns through the two-null test (draw order fixed)."""
     bits_all = [int(b, 16) if b else 0 for b in df.hbits]
     P = E.Pops(df, bits_all, key=E.PEER_KEY)
     cc = df.cc.astype(str).to_numpy()
     rng = np.random.default_rng(seed)
-    pv, pv_rot, skipped, skipped_res = [], [], 0, 0
-    t0 = time.time()
+    pv, pv_rot, mems, skipped, skipped_res = [], [], [], 0, 0
     dmode = E.pd_numeric(df["dmode"]) if "dmode" in df.columns else None
     keep = L.testable & ~(L["residue"] if "residue" in L else False)
     for _, c in L[keep].iterrows():
@@ -151,15 +155,102 @@ def cmd_tzneg(out, B=100, seed=13):
             skipped_res += 1
             continue
         r = E.sync_test(pseudo, None, bits_all, H, P, rng, B=B)
-        pv.append(r["p"]); pv_rot.append(r["p_rot"])
+        pv.append(r["p"]); pv_rot.append(r["p_rot"]); mems.append(pseudo)
+    return pv, pv_rot, mems, skipped, skipped_res
+
+
+def cmd_tzneg(out, B=100, seed=13):
+    df, labels, L = load()
+    t0 = time.time()
+    pv, pv_rot, _, skipped, skipped_res = tz_control(df, labels, L, B=B, seed=seed)
     sig, sig_rot = E.bh(pv), E.bh(pv_rot)
     res = {"pseudo_campaigns": len(pv), "skipped_small_country_pool": skipped,
            "skipped_residue": skipped_res,
            "fpr": float(sig.mean()) if pv else None, "fpr_rot": float(sig_rot.mean()) if pv else None,
            "raw_p_lt_0.05": float(np.mean(np.array(pv) < 0.05)) if pv else None,
            "seconds": round(time.time() - t0)}
-    json.dump(res, open(out, "w"), indent=1)
+    res.update(raw_rates(pv, pv_rot))
     print(json.dumps(res))
+    res["p"], res["p_rot"] = [round(float(x), 6) for x in pv], [round(float(x), 6) for x in pv_rot]
+    json.dump(res, open(out, "w"))
+
+
+def raw_rates(pv, pv_rot):
+    """Unadjusted rejection rates and how many p-values sit at the Monte Carlo floor 1/(B2+1)."""
+    p, pr = np.asarray(pv, float), np.asarray(pv_rot, float)
+    floor = 1.0 / (E.MC_B2 + 1) + 1e-12
+    out = {}
+    for name, x in (("", p), ("rot_", pr)):
+        for a in (0.05, 0.01):
+            out["raw_%sp_lt_%s" % (name, a)] = float(np.mean(x < a)) if len(x) else None
+        out["%sfloor_n" % name] = int((x <= floor).sum())
+    return out
+
+
+# ----------------------------------------------------------------------------- negp
+def cmd_negp(out, B=100):
+    df, labels, L = load()
+    camps = [{"id": int(r.id), "members": np.where(labels == r.id)[0], "residue": bool(r.residue)}
+             for r in L.itertuples()]                   # same campaigns, same order as the week run
+    t0 = time.time()
+    r = E.negative_control(df, H, camps, np.random.default_rng(11), B=B, keep_p=True)
+    pv, pv_rot = r.pop("p"), r.pop("p_rot")
+    r.pop("members")
+    r.update(raw_rates(pv, pv_rot))
+    wk = json.load(open("week_results.json"))["negative_control"]
+    r["reproduces_week_run"] = bool(all(r[k] == wk[k] for k in ("pseudo_campaigns", "flagged",
+                                                                "flagged_rot"))
+                                    and abs(r["raw_p_lt_0.05"] - wk["raw_p_lt_0.05"]) < 1e-12)
+    r["seconds"] = round(time.time() - t0)
+    print(json.dumps(r))
+    r["p"], r["p_rot"] = [round(float(x), 6) for x in pv], [round(float(x), 6) for x in pv_rot]
+    json.dump(r, open(out, "w"))
+
+
+# ----------------------------------------------------------------------------- refine
+_R = {}
+
+
+def _refine_one(args):
+    k, mem = args
+    r = E.sync_test(np.asarray(mem), None, _R["bits"], H, _R["P"], np.random.default_rng(500000 + k),
+                    B=_R["B2"])
+    return k, r["p"], r["p_rot"]
+
+
+def refine(pv, pv_rot, mems, B2, cut, procs, B1):
+    """Re-tests every pseudo-campaign with p < cut with B2 fresh surrogates per null (one stage,
+    floor 1/(B2+1)) and re-applies BH; the other p-values are kept. B1: the pipeline's budget."""
+    idx = [k for k, p in enumerate(pv) if p < cut]
+    with Pool(procs) as pool:
+        out = pool.map(_refine_one, [(k, mems[k]) for k in idx])
+    p2, pr2 = np.array(pv, float), np.array(pv_rot, float)
+    for k, p, pr in out:
+        p2[k], pr2[k] = p, pr
+    return {"n": len(pv), "refined": len(idx), "B2": B2,
+            "flagged_before": int(E.bh(pv).sum()), "flagged_after": int(E.bh(p2).sum()),
+            "floor_before": int((np.asarray(pv) <= 1.0 / (B1 + 1) + 1e-12).sum()),
+            "floor_after": int((p2 <= 1.0 / (B2 + 1) + 1e-12).sum()),
+            "raw_p_lt_0.01_after": float(np.mean(p2 < 0.01)), "min_p_after": float(p2.min())}
+
+
+def cmd_refine(out, B2=10000, cut=0.01, procs=40):
+    """Both negative controls replayed exactly (same draws as negp / tzneg), then their small
+    p-values sharpened with B2 surrogates: does BH still flag none without the 1/1001 floor?"""
+    df, labels, L = load()
+    t0 = time.time()
+    camps = [{"id": int(r.id), "members": np.where(labels == r.id)[0], "residue": bool(r.residue)}
+             for r in L.itertuples()]
+    r = E.negative_control(df, H, camps, np.random.default_rng(11), B=100, keep_p=True)
+    tz = tz_control(df, labels, L, B=100, seed=13)
+    _R.update(bits=[int(b, 16) if b else 0 for b in df.hbits], B2=B2)
+    _R["P"] = E.Pops(df, _R["bits"], key=E.PEER_KEY)
+    b1, E.MC_B2 = E.MC_B2, B2                      # one stage of B2 surrogates (no screening)
+    res = {"same_port": refine(r["p"], r["p_rot"], r["members"], B2, cut, procs, b1),
+           "same_country": refine(tz[0], tz[1], tz[2], B2, cut, procs, b1),
+           "seconds": round(time.time() - t0)}
+    print(json.dumps(res))
+    json.dump(res, open(out, "w"), indent=1)
 
 
 # ----------------------------------------------------------------------------- pemp
@@ -262,7 +353,7 @@ def cmd_pemp(out, B=1000, procs=40):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["orch", "tzneg", "pemp"])
+    ap.add_argument("cmd", choices=["orch", "tzneg", "pemp", "negp", "refine"])
     ap.add_argument("--out")
     ap.add_argument("--B", type=int)
     ap.add_argument("--procs", type=int, default=40)
@@ -271,5 +362,9 @@ if __name__ == "__main__":
         cmd_orch(a.out or "rev_orch.json")
     elif a.cmd == "tzneg":
         cmd_tzneg(a.out or "rev_tzneg.json", B=a.B or 100)
+    elif a.cmd == "negp":
+        cmd_negp(a.out or "rev_negp.json", B=a.B or 100)
+    elif a.cmd == "refine":
+        cmd_refine(a.out or "rev_refine.json", B2=a.B or 10000, procs=a.procs)
     else:
         cmd_pemp(a.out or "rev_pemp.json", B=a.B or 1000, procs=a.procs)
