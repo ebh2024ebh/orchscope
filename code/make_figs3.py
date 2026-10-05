@@ -281,7 +281,7 @@ def fig_case():
     if not os.path.exists(p):
         print("skip fig_case (no week_case.json)"); return
     panels = json.load(open(p))["panels"]
-    fig, axes = plt.subplots(1, len(panels), figsize=(3.5, 1.4), sharey=False)
+    fig, axes = plt.subplots(1, len(panels), figsize=(3.5, 1.32), sharey=False)
     from matplotlib.colors import ListedColormap
     cmap = ListedColormap(["#ffffff", BLUE])
     titles = {"orchestrated": "orchestrated", "surrogate": "rotation null",
@@ -317,7 +317,7 @@ def fig_rt():
     s = pd.DataFrame(json.load(open(p)))
     if "warm" in s:
         s = s[s.warm != True].reset_index(drop=True)
-    fig, (a, b) = plt.subplots(2, 1, figsize=(3.5, 1.62), sharex=True,
+    fig, (a, b) = plt.subplots(2, 1, figsize=(3.5, 1.42), sharex=True,
                                gridspec_kw={"height_ratios": [1.4, 1], "hspace": 0.45})
     h = (s.hour.to_numpy() % 24)
     ing = (s.t_read + s.t_ingest).to_numpy(); pro = s.t_profile.to_numpy()

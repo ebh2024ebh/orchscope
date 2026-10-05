@@ -18,6 +18,10 @@
            per null, then BH re-applied (superseded by the engine's third surrogate stage)
   retest : every non-residue campaign of the week re-tested with the current engine settings
            (PEER_CC, MC_*), compared with the week run                   -> rev_retest.json
+  fallback: share of tested members whose country has too few peers, so the population null
+           uses port-only peers                                          -> rev_fallback.json
+  stage3 : BH decisions with and without the 10^4 surrogate stage on identical draws
+                                                                         -> rev_stage3.json
 """
 import argparse, collections, glob, json, os, sys, time
 from multiprocessing import Pool
@@ -246,6 +250,62 @@ def cmd_retest(out, procs=40):
     json.dump(out_d, open(out, "w"))
 
 
+# ----------------------------------------------------------------------------- fallback
+def cmd_fallback(out, min_pool=40):
+    """How often the country-matched population null falls back to port-only peers: a member's
+    country offers fewer than min_pool non-member peers on the campaign's port (exact or adjacent
+    activity bin, or any bin), over the members of the week's testable campaigns."""
+    _init()
+    L, labels, P = G["L"], G["labels"], G["P"]
+    tot = fb = 0
+    orch_any = orch_major = orch_n = 0
+    for r in L.itertuples():
+        if r.residue or not r.testable:
+            continue
+        mem = np.where(labels == r.id)[0]
+        port = E.campaign_port(P, mem)
+        own = collections.Counter(zip(P.ports[mem], P.cc[mem], P.pbin[mem].tolist()))
+        own_cc = collections.Counter(zip(P.ports[mem], P.cc[mem]))
+        n_fb = 0
+        for (c, b), k in collections.Counter(zip(P.cc[mem], P.pbin[mem].tolist())).items():
+            ok = any(len(P.port_cc_bin.get((port, c, b + d), ())) - own[(port, c, b + d)] >= min_pool
+                     for d in (0, -1, 1))
+            ok = ok or len(P.port_cc_all.get((port, c), ())) - own_cc[(port, c)] >= min_pool
+            n_fb += 0 if ok else k
+        tot += len(mem); fb += n_fb
+        if r.orchestrated:
+            orch_n += 1; orch_any += n_fb > 0; orch_major += n_fb > len(mem) / 2
+    res = {"members": tot, "fallback_members": fb, "fallback_share": fb / max(tot, 1),
+           "orchestrated": orch_n, "orch_any_fallback": orch_any, "orch_majority_fallback": orch_major}
+    print(json.dumps(res))
+    json.dump(res, open(out, "w"), indent=1)
+
+
+# ----------------------------------------------------------------------------- stage3
+def _retest_pipeline_seed(cid):
+    mem = np.where(G["labels"] == cid)[0]
+    r = E.sync_test(mem, None, G["bits"], H, G["P"], np.random.default_rng((7, cid)), B=200)
+    return cid, r["p"]
+
+
+def cmd_stage3(out, procs=40):
+    """The week's BH decisions with and without the 10^4 surrogate stage, on identical draws
+    (the pipeline's per-campaign seeds): what lifting the 1/(MC_B2+1) floor adds."""
+    _init()
+    L = G["L"]
+    ids = [int(c) for c, r in zip(L.id, L.residue) if not r]
+    res, b3 = {"pipeline": int(L.orchestrated.sum())}, E.MC_B3
+    for name, v in (("three_stage", b3), ("two_stage", 0)):
+        E.MC_B3 = v
+        with Pool(procs) as pool:
+            out_ = pool.map(_retest_pipeline_seed, ids, chunksize=8)
+        res[name] = int(E.bh(np.array([x[1] for x in out_])).sum())
+    E.MC_B3 = b3
+    res["added_by_third_stage"] = res["three_stage"] - res["two_stage"]
+    print(json.dumps(res))
+    json.dump(res, open(out, "w"), indent=1)
+
+
 # ----------------------------------------------------------------------------- refine
 _R = {}
 
@@ -394,7 +454,8 @@ def cmd_pemp(out, B=1000, procs=40):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["orch", "tzneg", "pemp", "negp", "refine", "retest"])
+    ap.add_argument("cmd", choices=["orch", "tzneg", "pemp", "negp", "refine", "retest", "fallback",
+                                    "stage3"])
     ap.add_argument("--out")
     ap.add_argument("--B", type=int)
     ap.add_argument("--procs", type=int, default=40)
@@ -409,5 +470,9 @@ if __name__ == "__main__":
         cmd_refine(a.out or "rev_refine.json", B2=a.B or 10000, procs=a.procs)
     elif a.cmd == "retest":
         cmd_retest(a.out or "rev_retest.json", procs=a.procs)
+    elif a.cmd == "fallback":
+        cmd_fallback(a.out or "rev_fallback.json")
+    elif a.cmd == "stage3":
+        cmd_stage3(a.out or "rev_stage3.json", procs=a.procs)
     else:
         cmd_pemp(a.out or "rev_pemp.json", B=a.B or 1000, procs=a.procs)

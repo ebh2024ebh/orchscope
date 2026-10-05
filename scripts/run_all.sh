@@ -36,6 +36,8 @@ $PY -W ignore "$CODE/revision_checks.py" tzneg     # -> rev_tzneg.json (same-cou
 $PY -W ignore "$CODE/revision_checks.py" pemp      # -> rev_pemp.json (Monte Carlo vs Gaussian)
 $PY -W ignore "$CODE/revision_checks.py" negp      # -> rev_negp.json (control replay, all p-values)
 PEER_CC=0 $PY -W ignore "$CODE/revision_checks.py" tzneg --out rev_tzneg_port.json   # port-only peers
+$PY -W ignore "$CODE/revision_checks.py" fallback  # -> rev_fallback.json (port-only fallback share)
+$PY -W ignore "$CODE/revision_checks.py" stage3    # -> rev_stage3.json (what the 10^4 stage adds)
 
 # 5. case study, largest orchestrated campaigns, openjev labels, drift, demo data
 $PY -W ignore "$CODE/case_study.py"                # -> week_case.json
