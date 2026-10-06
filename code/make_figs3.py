@@ -289,7 +289,10 @@ def fig_case():
     for k, (ax, pn) in enumerate(zip(np.atleast_1d(axes), panels)):
         M = np.array([[int(ch) for ch in r] for r in pn["rows"]], dtype=float)
         H = M.shape[1]
-        ax.imshow(M, aspect="auto", cmap=cmap, interpolation="nearest", vmin=0, vmax=1)
+        # embed the bot x hour matrix unresampled (each cell a 3x3 pixel block), so every bot keeps its
+        # own row and the raster exceeds 300 dpi at print size; the extent keeps cell coordinates
+        ax.imshow(np.kron(M, np.ones((3, 3))), aspect="auto", cmap=cmap, interpolation="none",
+                  vmin=0, vmax=1, extent=(-0.5, H - 0.5, M.shape[0] - 0.5, -0.5))
         for x in range(24, H, 24):
             ax.axvline(x - 0.5, color=GRID, lw=0.4)
         ax.set_xticks(np.arange(12, H, 48))
