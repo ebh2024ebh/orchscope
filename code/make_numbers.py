@@ -381,6 +381,14 @@ s3 = load("rev_stage3.json")                        # what the 10^4 stage adds (
 if s3:
     put("StageTwoOrch", "{:,}".format(s3["two_stage"]).replace(",", "{,}"))
     put("StageThreeAdds", str(s3["added_by_third_stage"]))
+nr = load("rev_nores.json")                         # peers without residue sources (sipscan check)
+if nr:
+    put("NoresOrch", "{:,}".format(nr["orchestrated_nores"]).replace(",", "{,}"))
+    put("NoresBoth", "{:,}".format(nr["both"]).replace(",", "{,}"))
+    put("NoresAdd", str(nr["orchestrated_nores"] - nr["orchestrated_week"]))
+    if "negctl_port" in nr:
+        put("NoresNegFlag", str(nr["negctl_port"]["flagged"]))
+        put("NoresNegN", "{:,}".format(nr["negctl_port"]["pseudo_campaigns"]).replace(",", "{,}"))
 tp = load("rev_tzneg_port.json")                    # same control, port-only peers (PEER_CC=0)
 if tp:
     put("TzPortFlagPct", pct(tp["fpr"], 1))

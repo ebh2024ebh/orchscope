@@ -38,6 +38,7 @@ $PY -W ignore "$CODE/revision_checks.py" negp      # -> rev_negp.json (control r
 PEER_CC=0 $PY -W ignore "$CODE/revision_checks.py" tzneg --out rev_tzneg_port.json   # port-only peers
 $PY -W ignore "$CODE/revision_checks.py" fallback  # -> rev_fallback.json (port-only fallback share)
 $PY -W ignore "$CODE/revision_checks.py" stage3    # -> rev_stage3.json (what the 10^4 stage adds)
+$PY -W ignore "$CODE/revision_checks.py" nores     # -> rev_nores.json (peers without residue sources)
 
 # 5. case study, largest orchestrated campaigns, openjev labels, drift, demo data
 $PY -W ignore "$CODE/case_study.py"                # -> week_case.json
@@ -93,4 +94,17 @@ $PY -W ignore "$CODE/openjev_sim.py" openjev_sim_plain.json plain
 $PY -W ignore "$CODE/openjev_sim.py" openjev_sim_rich.json
 $PY -W ignore "$CODE/openjev_sim.py" openjev_sim_kb.json kb
 
-echo "done: copy the *.json results into results/ and run code/make_numbers.py and code/make_figs3.py"
+# 11. independent ground truth: the 2011 sipscan (docs/sipscan.md). Needs CAIDA's public Sipscan
+#     Dataset (sipscan.release_dataset.gz, under CAIDA's AUA) in sipscan/, next to the week's files.
+if [ -f sipscan/sipscan.release_dataset.gz ]; then
+  $PY "$CODE/sipscan_eval.py" prep                  # -> sipscan/sipscan.npz (per packet; keep local)
+  $PY "$CODE/sipscan_eval.py" check                 # -> sipscan_check.json
+  $PY "$CODE/sipscan_timeline.py"                   # -> sipscan_timeline.json (hourly aggregates)
+  for P in scan all; do
+    OMP_NUM_THREADS=1 $PY -W ignore "$CODE/sipscan_eval.py" week --peers $P     # -> sipscan_week_$P.json
+    OMP_NUM_THREADS=1 $PY -W ignore "$CODE/sipscan_eval.py" stream --peers $P   # -> sipscan_stream_$P.json
+  done
+fi
+
+echo "done: copy the *.json results into results/ and run code/make_numbers.py, code/make_figs3.py"
+echo "      and code/sipscan_doc.py (then latexmk -pdf docs/sipscan.tex)"

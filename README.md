@@ -21,9 +21,23 @@ into per-source rows, and `code/stream.py` runs the engines after every hourly b
 ```
 code/      pipeline, evaluation, and generators of the paper's numbers and figures
 results/   aggregate result files (per run / per campaign; no per-source data, no IP addresses)
+docs/      supplementary report: the orchestration engine on the 2011 sipscan (docs/sipscan.pdf)
 demo/      offline replay of the tool (open demo/index.html in a browser; no server needed)
 scripts/   run_all.sh: the end-to-end pipeline on ORION data
 ```
+
+## Independent ground truth: the 2011 sipscan
+
+The supplementary report [`docs/sipscan.pdf`](docs/sipscan.pdf) tests the orchestration engine
+on a real, documented C&C-orchestrated campaign: the Sality botnet's /0 SIP scan of February 2011,
+from CAIDA's public Sipscan Dataset, replayed at the size of ORION's telescope. To rebuild it:
+
+```bash
+python code/sipscan_doc.py           # -> docs/sipscan_numbers.tex, docs/sipscan_tab_*.tex, figures
+cd docs && latexmk -pdf sipscan.tex  # -> docs/sipscan.pdf
+```
+
+The first step reads only `results/`; every number in the report is a generated macro.
 
 ## Reproduce every number, table, and figure of the paper
 
@@ -52,7 +66,9 @@ control; (4) peer-ratio negative controls, residue/latency characterization, sam
 control, and the Monte Carlo vs. Gaussian p-value comparison; (5) case study, largest campaigns,
 openjev labels, drift; (6) per-day inference and lineage; (7) hourly streaming replay;
 (8) simulation study; (9) DarkVec baseline on simulated and real traffic; (10) openjev on
-ground-truth campaigns. Copy the resulting JSON files into `results/` and regenerate the outputs.
+ground-truth campaigns; (11) the sipscan check (needs CAIDA's public Sipscan Dataset, used under
+CAIDA's Acceptable Use Agreement). Copy the resulting JSON files into `results/` and regenerate
+the outputs.
 
 Settings (environment variables read by `code/engine.py`):
 
@@ -79,7 +95,10 @@ No file in this repository contains IP addresses or other per-source records. `r
 per-run and per-campaign aggregates with network operator names removed; `demo/data.js` holds
 campaign summaries only (counts, country tallies, header-field classes, hourly activity, and
 destination offsets inside the monitored block). Traffic was analyzed passively under a data-use
-agreement with Merit Network.
+agreement with Merit Network. The sipscan check uses CAIDA's Sipscan Dataset under CAIDA's
+Acceptable Use Agreement; the data are not redistributed, and `results/sipscan_*.json` hold
+aggregates only. Cite the data as: The CAIDA UCSD Network Telescope on the Sipscan Dataset -
+Jan 31-Feb 14, 2011, https://catalog.caida.org/dataset/telescope_sipscan.
 
 ## License
 
