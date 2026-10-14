@@ -113,7 +113,10 @@ def gen_campaign(cid, spec, rng, H, scale, src_base):
         bot = {"src": src, "hops": int(rng.integers(4, 26)), "ipid": int(rng.integers(0, 65536)),
                "sport": int(rng.integers(32768, 61000))}
         if spec["orchestrated"]:
-            act = [(h + int(rng.integers(-1, 2))) % H for h in sched if rng.random() > 0.1]
+            # stagger S > 0 (adversarial): each bot runs the shared schedule delayed by its own
+            # offset of 0..S hours, as a controller that de-synchronizes its bots would
+            off = int(rng.integers(0, spec["stagger"] + 1)) if spec.get("stagger") else 0
+            act = [(h + off + int(rng.integers(-1, 2))) % H for h in sched if rng.random() > 0.1]
         else:                       # independent: own contiguous runs, circular placement
             lo, hi = spec["window"]
             span = hi - lo
@@ -336,9 +339,24 @@ def main():
     ap.add_argument("--quick", action="store_true")
     ap.add_argument("--only-abl", action="store_true", help="default configuration only")
     ap.add_argument("--hp", action="store_true", help="add hyper-parameter variants")
+    ap.add_argument("--only-sweeps", action="store_true", help="rate/size, scale and port sweeps")
+    ap.add_argument("--stagger", default="", help="per-bot stagger runs, e.g. 0,2,4,8,12 (hours)")
     a = ap.parse_args()
     jobs = []
     seeds = range(1, a.seeds + 1)
+    if a.stagger:                      # adversarial schedules on the default configuration
+        for s in seeds:
+            for st in (int(x) for x in a.stagger.split(",")):
+                specs = mix(8, 100, 12, None)
+                for sp in specs:
+                    sp["stagger"] = st
+                jobs.append(("stagger_%d" % st, specs, s, 1.0, "ours"))
+        with Pool(a.procs, initializer=_init, initargs=(a.bg,)) as pool:
+            res = pool.map(run_one, jobs, chunksize=1)
+        with open(a.out, "w") as fh:
+            json.dump(res, fh, indent=1)
+        print("jobs", len(res))
+        return
     rates = [3, 12, 60] if not a.quick else [12]
     bots = [25, 100, 400] if not a.quick else [100]
     for s in seeds:
@@ -353,6 +371,8 @@ def main():
             jobs.append(("scale_%s" % nm, mix(8, 100, 60, rng), s, scale, "ours"))
         for K in (((1, 4, 8, 16) if not a.quick else (8,)) if not a.only_abl else ()):
             jobs.append(("conc_K%d" % K, mix(K, 100, 30, rng, same_port=23), s, 1.0, "ours"))
+        if a.only_sweeps:
+            continue
         base = mix(8, 100, 12, rng)
         hp = ["eps0.25", "eps0.5", "eps1.0", "eps1.5", "mcs0.05", "mcs0.2", "B100", "B400"]
         for v in ["ours", "porttime", "-fingerprint", "-temporal", "-rate", "-coverage",

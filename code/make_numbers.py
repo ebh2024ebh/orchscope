@@ -389,6 +389,111 @@ if nr:
     if "negctl_port" in nr:
         put("NoresNegFlag", str(nr["negctl_port"]["flagged"]))
         put("NoresNegN", "{:,}".format(nr["negctl_port"]["pseudo_campaigns"]).replace(",", "{,}"))
+
+# ------------------------------------------------------------ reviewer round 5 (Oct. 13)
+from scipy import stats as _st
+
+
+def cp_upper(n, alpha=0.05):
+    """Exact (Clopper-Pearson) two-sided 95% upper bound for 0 events in n trials."""
+    return float(_st.beta.ppf(1 - alpha / 2, 1, n)) if n else float("nan")
+
+
+if wk:
+    put("NegFPRUB", "%.3f" % (100 * cp_upper(wk["negative_control"]["pseudo_campaigns"])))
+    Lw = pd.DataFrame(wk["landscape"])
+    Tw = Lw[~Lw.residue]
+    pw = np.sort(Tw.p.to_numpy(float)); mw = len(pw)
+    cby = 0.05 / (mw * (1.0 / np.arange(1, mw + 1)).sum())      # Benjamini-Yekutieli
+    kby = np.where(pw <= cby * np.arange(1, mw + 1))[0]
+    put("BYOrch", str(int(kby.max() + 1) if len(kby) else 0))
+    put("WeekUndetPct", pct(1 - Tw.testable.mean(), 0))
+    Ow = Tw[Tw.orchestrated]
+    put("OrchMedASN", "%d" % int(Ow.n_asn.median()))
+    put("OrchMultiASPct", pct((Ow.n_asn >= 2).mean(), 0))
+if tz:
+    put("TzNegFPRUB", "%.3f" % (100 * cp_upper(tz["pseudo_campaigns"])))
+if st:
+    s5 = pd.DataFrame(st)
+    s5 = s5[s5.warm != True].reset_index(drop=True) if "warm" in s5 else s5
+    put("StreamGrowPct", pct(s5.profiles.iloc[-1] / s5.profiles.iloc[0] - 1, 0))
+    put("StreamInferGrowPct", pct(s5.t_infer.iloc[-3:].median() / s5.t_infer.iloc[:3].median() - 1, 0))
+    # a month-long window if per-hour inference grew in proportion to the window's profiles
+    put("StreamMonthMin", "%.0f" % ((s5.t_profile.median() + s5.t_infer.median() * 30 / 7) / 60))
+sw = load("sim_sweeps10.json")                      # rate/size, scale and port sweeps, 10 seeds
+if sw:
+    r10 = pd.DataFrame(sw)
+    m10 = r10.groupby(["name", "variant"]).mean(numeric_only=True)
+    put("SweepSeeds", str(r10.seed.nunique()))
+    put("ScaleTwenty", f2(m10.loc[("scale_/20", "ours"), "ari"]))
+    put("ScaleTwentyTPR", f2(m10.loc[("scale_/20", "ours"), "orch_tpr"]))
+    put("ScaleSixteen", f2(m10.loc[("scale_/16", "ours"), "ari"]))
+    put("ScaleThirteen", f2(m10.loc[("scale_/13", "ours"), "ari"]))
+    put("ConcSixteen", f2(m10.loc[("conc_K16", "ours"), "ari"]))
+    put("ConcOnePur", pct(m10.loc[("conc_K1", "ours"), "b3_p"], 0))
+    put("SweepBest", f2(m10.loc[("sweep_r12_n400", "ours"), "ari"]))
+    put("SweepLow", f2(m10.loc[("sweep_r3_n100", "ours"), "ari"]))
+    x10 = r10[(r10.variant == "ours") & (r10.name != "conc_K1")]
+    sgx = load("sim_stagger.json")                  # adversarial runs count toward calibration
+    if sgx:
+        x10 = pd.concat([x10, pd.DataFrame(sgx)], ignore_index=True)
+    put("CalRuns", str(len(x10)))
+    put("CalFPRuns", str(int((x10.orch_fpr.fillna(0) > 0).sum())))
+    put("CalMeanFPR", f2(float(x10.orch_fpr.mean())))
+    put("CalMinTPR", f2(float(x10.orch_tpr.min())))
+    put("CalMeanFPRRot", f2(float(x10.orch_fpr_rot.mean())))
+    xs10 = x10[~x10.name.astype(str).str.startswith("stagger_")]   # TPR of non-adversarial runs
+    put("CalMeanTPR", f2(float(xs10.orch_tpr.mean())))
+    put("CalMeanTPRRot", f2(float(xs10.orch_tpr_rot.mean())))
+    negs = [sum(1 for t in l_ if t[0] == 0) if isinstance(l_, list) else 0 for l_ in x10.orch_scores]
+    neg = sum(negs)
+    fpn = int(round(sum(f * n for f, n in zip(x10.orch_fpr.fillna(0), negs))))
+    put("CalNegN", "{:,}".format(neg).replace(",", "{,}"))
+    put("CalFPN", "none" if fpn == 0 else str(fpn))
+    put("CalFPRUB", "%.1f" % (100 * (cp_upper(neg) if fpn == 0 else
+                                     float(_st.beta.ppf(0.975, fpn + 1, neg - fpn)))))
+sg = load("sim_stagger.json")                       # adversarial per-bot stagger, 10 seeds
+if sg:
+    rg = pd.DataFrame(sg)
+    for name, key in (("0", "zero"), ("2", "two"), ("4", "four"), ("8", "eight"), ("12", "twelve")):
+        x_ = rg[rg.name == "stagger_" + name]
+        if len(x_):
+            put("StagTPR" + key, f2(x_.orch_tpr.mean())); put("StagRotTPR" + key, f2(x_.orch_tpr_rot.mean()))
+            put("StagFPR" + key, f2(x_.orch_fpr.mean()))
+dsens = load("dv_sens.json")                        # DarkVec, one setting at a time, 10 seeds
+if dsens:
+    ds = pd.DataFrame(dsens).groupby("variant").mean(numeric_only=True)
+    if dvr:
+        ds.loc["published"] = pd.DataFrame(dvr).mean(numeric_only=True)
+    put("DVSensN", str(len(ds) - 1))
+    put("DVSensFMin", f2(ds.b3_f1.min())); put("DVSensFMax", f2(ds.b3_f1.max()))
+    put("DVSensPMax", f2(ds.b3_p.max())); put("DVSensRecMax", f2(ds.campaign_recall.max()))
+    put("DVSensARIMax", f2(ds.ari.max()))
+    put("DVSensBest", ds.b3_f1.idxmax())
+# the sipscan replay (docs/sipscan.pdf): headline numbers, via the report's own generator
+try:
+    import sipscan_doc as _sd
+    _sd.AN = AN
+    _T, _Ws = load("sipscan_timeline.json"), load("sipscan_week_scan.json")
+    _Ss, _Sa = load("sipscan_stream_scan.json"), load("sipscan_stream_all.json")
+    if _T and _Ws and _Ss:
+        _o, _r = _sd.onset_stats(_Ss), _sd.restart_stats(_Ss)
+        _P = _sd.phases(_T)
+        put("SipPacketsM", "%.1f" % (_T["total_packets"] / 1e6))
+        put("SipBotsM", "%.2f" % (_T["total_bots"] / 1e6))
+        put("SipSlices", str(len(_Ws["profiled_bots"][0])))
+        put("SipOnsetCamps", str(_o["camps_first"])); put("SipOnsetFlag", str(_o["flag_first"]))
+        put("SipRestartFirst", str(_r["m30_first"]))
+        put("SipRestartDelay", "%d" % (_sd.LANDMARK_H["restart"] + _r["h1"] + 1 - _P["restart"]))
+        put("SipSteadyDays", ("%.0f" % ((_P["decline"] - _P["onset"]) / 24)))
+        cks = sum(round(x_["flag"] * x_["tested"]) for x_ in _Ws["controls_by_size"])
+        put("SipCtlFlag", str(int(cks)))
+        put("SipCtlTotal", "{:,}".format(sum(x_["tested"] for x_ in _Ws["controls_by_size"])).replace(",", "{,}"))
+        o5 = _Ws["orion_5060"]
+        put("OrionResiduePct", pct(o5["residue"] / o5["sources"], 0))
+        put("SipDepFlagMax", pct(max(x_["flag"] for x_ in load("sipscan_week_all.json")["by_window_size"]), 0))
+except ImportError:
+    pass
 tp = load("rev_tzneg_port.json")                    # same control, port-only peers (PEER_CC=0)
 if tp:
     put("TzPortFlagPct", pct(tp["fpr"], 1))
@@ -432,7 +537,12 @@ OrchResearchPct TimeToMMed TimeToMSamePct TzNegN TzNegFPR TzNegFPRRot PempNormal
 PempExtraPct StreamCampDiff StreamOrchDiff StreamLastRes AblHdbP AblHdbFPR AblHdbFF ResTauHi ResTauLo
 PvalHdbF PvalHdbRec WeekOrchN OrchMixPct OrchOtherPct StreamNewMed StreamNewMax AIBudgetMed
 AIBudgetMax TzRawFive TzRawOne NegRawFive NegRawOne NegRotRawFive TzPortFlagPct TzPortRawFive
-TzPortRawOne WeekTB FallbackMemPct FallbackOrchMajor StageTwoOrch StageThreeAdds""".split())
+TzPortRawOne WeekTB FallbackMemPct FallbackOrchMajor StageTwoOrch StageThreeAdds
+NegFPRUB TzNegFPRUB BYOrch WeekUndetPct OrchMedASN OrchMultiASPct StreamGrowPct
+StreamInferGrowPct StreamMonthMin SweepSeeds ScaleSixteen ScaleThirteen CalNegN CalFPRUB
+StagTPRzero StagTPRfour StagTPReight StagTPRtwelve CalFPN DVSensFMin DVSensFMax DVSensRecMax
+SipPacketsM SipBotsM SipSlices SipOnsetCamps SipRestartDelay SipSteadyDays SipCtlFlag SipCtlTotal
+OrionResiduePct SipDepFlagMax NoresOrch""".split())
 lines = ["% generated by code/make_numbers.py -- do not edit"]
 for k in sorted(EXPECTED | set(N)):
     lines.append("\\newcommand{\\%s}{%s}" % (k, N.get(k, "--")))

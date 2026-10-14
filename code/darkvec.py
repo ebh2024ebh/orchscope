@@ -226,15 +226,25 @@ def main():
     ap.add_argument("--min-size", type=int, default=10)
     ap.add_argument("--threads", type=int, default=1)
     ap.add_argument("--max-sent", type=int, default=0, help="split longer sentences (0: never)")
+    # published defaults; varied only by the sensitivity study (dv_sim.py sens)
+    ap.add_argument("--services", type=int, default=10, help="top ports kept as services")
+    ap.add_argument("--min-packets", type=int, default=10, help="drop senders below this")
+    ap.add_argument("--window", type=int, default=25, help="skip-gram context")
+    ap.add_argument("--dim", type=int, default=50, help="embedding dimensions")
+    ap.add_argument("--knn", type=int, default=3, help="k of the k-NN graph")
+    ap.add_argument("--resolution", type=float, default=1.0, help="Louvain resolution")
     a = ap.parse_args()
     t0 = time.time()
     rows = read_rows(a.rows)
-    vocab, flat, ptr = corpus(rows, max_sent=a.max_sent)
+    vocab, flat, ptr = corpus(rows, n_services=a.services, min_packets=a.min_packets,
+                              max_sent=a.max_sent)
     t1 = time.time()
-    emb = embed(flat, ptr, len(vocab), epochs=a.epochs, seed=a.seed, threads=a.threads)
+    emb = embed(flat, ptr, len(vocab), dim=a.dim, window=a.window, epochs=a.epochs, seed=a.seed,
+                threads=a.threads)
     t2 = time.time()
-    g = knn_graph(emb)
-    comms = nx.community.louvain_communities(g, weight="weight", resolution=1.0, seed=a.seed)
+    g = knn_graph(emb, k=a.knn)
+    comms = nx.community.louvain_communities(g, weight="weight", resolution=a.resolution,
+                                             seed=a.seed)
     t3 = time.time()
     inv = {i: s for s, i in vocab.items()}
     lab = {}

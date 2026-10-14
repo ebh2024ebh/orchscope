@@ -76,6 +76,8 @@ awk 'FNR==1 && NR!=1 {next} {print}' prof/bg24_*.tsv > prof_bg24.tsv
 export TEST_PROCS=1   # simulate.py parallelizes over runs; each run tests its campaigns serially
 $PY -W ignore "$CODE/simulate.py" --bg prof_bg24.tsv --out sim_results.json --procs 16 --seeds 3
 $PY -W ignore "$CODE/simulate.py" --bg prof_bg24.tsv --out sim_abl10.json --procs 16 --seeds 10 --only-abl --hp
+$PY -W ignore "$CODE/simulate.py" --bg prof_bg24.tsv --out sim_sweeps10.json --procs 16 --seeds 10 --only-sweeps
+$PY -W ignore "$CODE/simulate.py" --bg prof_bg24.tsv --out sim_stagger.json --procs 16 --seeds 10 --stagger 0,2,4,8,12
 unset TEST_PROCS
 
 # 9. DarkVec baseline: simulated seeds and one real day
@@ -85,6 +87,18 @@ for s in $(seq 1 10); do   # single-threaded per seed (deterministic), seeds in 
 done
 wait
 $PY -W ignore "$CODE/dv_sim.py" eval --seeds 10   # -> dv_results.json
+# one-at-a-time DarkVec sensitivity (configurations as in dv_sim.py SENS) -> dv_sens.json
+for c in "services5:--services 5" "services20:--services 20" "minpk1:--min-packets 1" \
+         "minpk5:--min-packets 5" "minpk20:--min-packets 20" "window5:--window 5" \
+         "window10:--window 10" "dim100:--dim 100" "knn5:--knn 5" "knn10:--knn 10" \
+         "res0.5:--resolution 0.5" "res2:--resolution 2"; do
+  name=${c%%:*}; mkdir -p "dv/$name"
+  for s in $(seq 1 10); do
+    $PY "$CODE/darkvec.py" "dv/rows_$s.tsv" "dv/$name/labels_$s.tsv" --seed "$s" ${c#*:} &
+  done
+  wait
+done
+$PY -W ignore "$CODE/dv_sim.py" sens --seeds 10 --out dv_sens.json
 $PY -W ignore "$CODE/dv_real.py" prep
 $PY "$CODE/darkvec.py" dv_real/rows.tsv dv_real/labels.tsv --seed 7 --threads 40 --max-sent 20000
 $PY -W ignore "$CODE/dv_real.py" eval --labels labels.tsv --out dv_real.json
