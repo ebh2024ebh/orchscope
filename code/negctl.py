@@ -15,6 +15,7 @@ def main(out="negctl.json", n_max=6000, B=100, seed=11):
     df = E.load_profiles(sorted(glob.glob("prof/week_*.tsv")))
     labels = np.load("week_results_labels.npy")
     L = pd.DataFrame(json.load(open("week_results.json"))["landscape"])
+    excl = E.week_excl(labels, L)
     if "residue" in L:
         L = L[~L.residue]                       # residue groups are never tested
     dmode = E.pd_numeric(df["dmode"]) if "dmode" in df.columns else None
@@ -24,7 +25,7 @@ def main(out="negctl.json", n_max=6000, B=100, seed=11):
     res = {}
     for key in ((sys.argv[2],) if len(sys.argv) > 2 else ("portsig", "top1")):
         rng = np.random.default_rng(seed)
-        P = E.Pops(df, bits_all, key=key)
+        P = E.Pops(df, bits_all, key=key, excl=excl)
         n_all = n_ok = 0
         pr, pc = [], []
         for _, c in L.iterrows():

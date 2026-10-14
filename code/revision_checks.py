@@ -22,9 +22,9 @@
            uses port-only peers                                          -> rev_fallback.json
   stage3 : BH decisions with and without the 10^4 surrogate stage on identical draws
                                                                          -> rev_stage3.json
-  nores  : the week and both negative controls with population-null peers drawn only from sources
-           outside residue groups (found necessary by the sipscan check, sipscan_eval.py)
-                                                                         -> rev_nores.json
+  respeers: the week and both negative controls with the other peer-pool setting: by default,
+           residue sources admitted as population-null peers (the engine before the sipscan
+           check, sipscan_eval.py, made residue-free pools the default)  -> rev_respeers.json
 """
 import argparse, collections, glob, json, os, sys, time
 from multiprocessing import Pool
@@ -144,7 +144,7 @@ def cmd_orch(out):
 def tz_control(df, labels, L, B=100, seed=13):
     """Same-port, same-country pseudo-campaigns through the two-null test (draw order fixed)."""
     bits_all = [int(b, 16) if b else 0 for b in df.hbits]
-    P = E.Pops(df, bits_all, key=E.PEER_KEY)
+    P = E.Pops(df, bits_all, key=E.PEER_KEY, excl=E.week_excl(labels, L))
     cc = df.cc.astype(str).to_numpy()
     rng = np.random.default_rng(seed)
     pv, pv_rot, mems, skipped, skipped_res = [], [], [], 0, 0
@@ -291,53 +291,37 @@ def _retest_pipeline_seed(cid):
     return cid, r["p"]
 
 
-# ----------------------------------------------------------------------------- nores
-def use_nores_pools(excl):
-    """Population-null peer pools without the sources of residue groups (excl: row mask). The
-    sipscan check found ORION's port-5060 pool to be 89% one residue event, whose sources are far
-    more co-active than scanners. Patches E.Pops in this process (and its forked workers)."""
-    base = E.Pops
-
-    class PopsNoRes(base):
-        def __init__(self, df, bits_all, key="portsig"):
-            super().__init__(df, bits_all, key)
-            ok = ~excl
-            for name in ("port_bin", "port_all", "port_cc_bin", "port_cc_all", "bin_all"):
-                d = getattr(self, name)
-                setattr(self, name, {k: v[ok[v]] for k, v in d.items() if ok[v].any()})
-    E.Pops = PopsNoRes
-
-
-def _retest_nores(cid):
+# ----------------------------------------------------------------------------- respeers
+def _retest(cid):
     mem = np.where(G["labels"] == cid)[0]
     r = E.sync_test(mem, None, G["bits"], H, G["P"], np.random.default_rng((7, cid)), B=200)
     return cid, r["p"], r["p_pop"], r["testable"]
 
 
-def cmd_nores(out, procs=40):
-    """The week re-tested with residue-free peer pools, on the pipeline's per-campaign draws, and
-    both negative controls (same port, as analyze_week.py; same port and country, as tzneg) re-run
-    with those pools: what excluding residue sources from the population null would change."""
+def cmd_respeers(out, procs=40):
+    """The week re-tested with the other peer-pool setting (E.PEER_NORES flipped: by default,
+    residue sources admitted as population-null peers, as in the engine before the sipscan check),
+    on the pipeline's per-campaign draws, and both negative controls (same port, as
+    analyze_week.py; same port and country, as tzneg) re-run with those pools."""
     t0 = time.time()
-    df, labels, L = load()
-    rid = set(int(x) for x in L.id[L.residue])
-    use_nores_pools(np.array([int(x) in rid for x in labels]))
-    bits_all = [int(b, 16) if b else 0 for b in df.hbits]
-    G.update(df=df, labels=labels, L=L, bits=bits_all, P=E.Pops(df, bits_all, key=E.PEER_KEY))
+    E.PEER_NORES = not E.PEER_NORES
+    _init()
+    df, labels, L = G["df"], G["labels"], G["L"]
     ids = [int(c) for c, r in zip(L.id, L.residue) if not r]
     with Pool(procs) as pool:
-        res = pool.map(_retest_nores, ids, chunksize=8)
+        res = pool.map(_retest, ids, chunksize=8)
     sig = E.bh(np.array([x[1] for x in res]))
     Li = L.set_index("id")
-    new = {x[0] for x, s in zip(res, sig) if s}
-    old = {c for c in ids if bool(Li.at[c, "orchestrated"])}
+    alt = {x[0] for x, s in zip(res, sig) if s}
+    week = {c for c in ids if bool(Li.at[c, "orchestrated"])}
     proto = {c: int(Li.at[c, "proto"]) for c in ids}
-    out_d = {"campaigns": len(ids), "testable": int(sum(x[3] for x in res)),
+    out_d = {"alt_peer_nores": E.PEER_NORES, "campaigns": len(ids),
+             "testable_alt": int(sum(x[3] for x in res)),
              "testable_week": int(L.testable[~L.residue].sum()),
-             "orchestrated_week": len(old), "orchestrated_nores": len(new), "both": len(old & new),
-             "week_only": len(old - new), "nores_only": len(new - old),
-             "by_proto_week": dict(collections.Counter(proto[c] for c in old)),
-             "by_proto_nores": dict(collections.Counter(proto[c] for c in new)),
+             "orchestrated_week": len(week), "orchestrated_alt": len(alt), "both": len(week & alt),
+             "week_only": len(week - alt), "alt_only": len(alt - week),
+             "by_proto_week": dict(collections.Counter(proto[c] for c in week)),
+             "by_proto_alt": dict(collections.Counter(proto[c] for c in alt)),
              "seconds_retest": round(time.time() - t0)}
     print(json.dumps(out_d), flush=True)
     camps = [{"id": int(r.id), "members": np.where(labels == r.id)[0], "residue": bool(r.residue)}
@@ -355,7 +339,7 @@ def cmd_nores(out, procs=40):
     tz.update(raw_rates(pv, pv_rot))
     out_d["negctl_country"] = tz
     out_d["seconds"] = round(time.time() - t0)
-    out_d["orchestrated_ids"] = sorted(new)
+    out_d["orchestrated_ids_alt"] = sorted(alt)
     print(json.dumps(tz))
     json.dump(out_d, open(out, "w"))
 
@@ -415,7 +399,7 @@ def cmd_refine(out, B2=10000, cut=0.01, procs=40):
     r = E.negative_control(df, H, camps, np.random.default_rng(11), B=100, keep_p=True)
     tz = tz_control(df, labels, L, B=100, seed=13)
     _R.update(bits=[int(b, 16) if b else 0 for b in df.hbits], B2=B2)
-    _R["P"] = E.Pops(df, _R["bits"], key=E.PEER_KEY)
+    _R["P"] = E.Pops(df, _R["bits"], key=E.PEER_KEY, excl=E.week_excl(labels, L))
     b1, E.MC_B2 = E.MC_B2, B2                      # one stage of B2 surrogates (no screening)
     res = {"same_port": refine(r["p"], r["p_rot"], r["members"], B2, cut, procs, b1),
            "same_country": refine(tz[0], tz[1], tz[2], B2, cut, procs, b1),
@@ -431,7 +415,8 @@ G = {}
 def _init():
     df, labels, L = load()
     bits_all = [int(b, 16) if b else 0 for b in df.hbits]
-    G.update(df=df, labels=labels, L=L, bits=bits_all, P=E.Pops(df, bits_all, key=E.PEER_KEY))
+    G.update(df=df, labels=labels, L=L, bits=bits_all,
+             P=E.Pops(df, bits_all, key=E.PEER_KEY, excl=E.week_excl(labels, L)))
 
 
 def rot_null(members, bits_all, rng, B, local):
@@ -527,7 +512,7 @@ def cmd_pemp(out, B=1000, procs=40):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("cmd", choices=["orch", "tzneg", "pemp", "negp", "refine", "retest", "fallback",
-                                    "stage3", "nores"])
+                                    "stage3", "respeers"])
     ap.add_argument("--out")
     ap.add_argument("--B", type=int)
     ap.add_argument("--procs", type=int, default=40)
@@ -546,7 +531,7 @@ if __name__ == "__main__":
         cmd_fallback(a.out or "rev_fallback.json")
     elif a.cmd == "stage3":
         cmd_stage3(a.out or "rev_stage3.json", procs=a.procs)
-    elif a.cmd == "nores":
-        cmd_nores(a.out or "rev_nores.json", procs=a.procs)
+    elif a.cmd == "respeers":
+        cmd_respeers(a.out or "rev_respeers.json", procs=a.procs)
     else:
         cmd_pemp(a.out or "rev_pemp.json", B=a.B or 1000, procs=a.procs)

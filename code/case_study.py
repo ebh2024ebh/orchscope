@@ -67,7 +67,7 @@ def main():
     labels = np.load(a.results.replace(".json", "_labels.npy"))
     L = pd.DataFrame(res["landscape"])
     bits_all = [int(b, 16) if b else 0 for b in df.hbits]
-    P = E.Pops(df, bits_all)
+    P = E.Pops(df, bits_all, excl=E.week_excl(labels, L))
     big = L[L.bots >= a.min_bots]
     orch = big[big.orchestrated].sort_values("z", ascending=False)
     if orch.empty:

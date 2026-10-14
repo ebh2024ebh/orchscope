@@ -612,7 +612,7 @@ class Pops:
     """Port (and port x country) populations stratified by activity volume, for the population
     null."""
 
-    def __init__(self, df, bits_all, key="portsig"):
+    def __init__(self, df, bits_all, key="portsig", excl=None):
         import pandas as pd
         self.pbin = np.array([nact_bin(x) for x in df.nact.to_numpy()], dtype=np.int64)
         self.key = key
@@ -630,11 +630,34 @@ class Pops:
         self.port_cc_all = {(p, c): np.asarray(v) for (p, c), v in g.items()}
         self.packed = pack_bits(bits_all)
         self.is_mem = np.zeros(len(df), dtype=bool)
+        if excl is not None:                     # sources never drawn as peers (residue groups)
+            ok = ~np.asarray(excl, dtype=bool)
+            for name in ("port_bin", "port_all", "port_cc_bin", "port_cc_all", "bin_all"):
+                d = getattr(self, name)
+                setattr(self, name, {k: v[ok[v]] for k, v in d.items() if ok[v].any()})
 
 
 PEER_RATIO = float(os.environ.get("PEER_RATIO", "1"))   # testable: port has >= this x non-member peers
 PEER_KEY = os.environ.get("PEER_KEY", "top1")   # peer population: primary port (or "portsig")
 PEER_CC = os.environ.get("PEER_CC", "1") == "1"  # match peers on country too (shared time zone)
+# Residue sources are never peers: one residue event can fill a port's population (89% of ORION's
+# port-5060 sources in the sipscan check) and is far more co-active than any scanner population.
+PEER_NORES = os.environ.get("PEER_NORES", "1") == "1"
+
+
+def peer_excl(n, groups):
+    """Row mask of the members of residue groups, excluded from peer pools (None if PEER_NORES=0
+    or there is no residue)."""
+    excl = np.zeros(n, dtype=bool)
+    for mem in groups:
+        excl[np.asarray(mem, dtype=np.int64)] = True
+    return excl if PEER_NORES and excl.any() else None
+
+
+def week_excl(labels, L):
+    """peer_excl for a saved week: labels per source, L its landscape (id, residue)."""
+    rid = L.id[L.residue].to_numpy() if "residue" in L else []
+    return peer_excl(len(labels), [np.flatnonzero(np.isin(labels, rid))])
 
 
 def peer_pool(P, port, b, min_pool=40):
@@ -976,7 +999,8 @@ def enhanced_infer(df, H, min_size=10, drop=(), use_fp=True, use_hdb=True, use_t
     for c in camps:
         c["conv"], c["residue"] = convergence(c["members"], dmode)
     if use_test and camps:
-        P = Pops(df, bits_all, key=PEER_KEY)
+        P = Pops(df, bits_all, key=PEER_KEY,
+                 excl=peer_excl(n, [c["members"] for c in camps if c["residue"]]))
         test_idx = [k for k, c in enumerate(camps) if not c["residue"]]   # residue is never tested
         res = run_tests(camps, test_idx, bits_all, H, P, B, seed)
         pv, pv_rot = [], []
@@ -1052,7 +1076,8 @@ def negative_control(df, H, camps, rng, B=100, reps=1, keep_p=False):
     keep_p=True also returns every pseudo-campaign's p-values (two-null and rotation alone) and
     members (row indices)."""
     bits_all = [int(b, 16) if b else 0 for b in df.hbits]
-    P = Pops(df, bits_all, key=PEER_KEY)
+    P = Pops(df, bits_all, key=PEER_KEY,
+             excl=peer_excl(len(df), [c["members"] for c in camps if c.get("residue")]))
     dmode = pd_numeric(df["dmode"]) if "dmode" in df.columns else None
     pv, pv_rot, mems = [], [], []
     n_res = 0

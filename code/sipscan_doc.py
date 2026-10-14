@@ -2,7 +2,7 @@
 """Supplementary report on the 2011 sipscan (docs/sipscan.tex): figures (PDF), every number as a
 LaTeX macro (docs/sipscan_numbers.tex) and the tables (docs/sipscan_tab_*.tex), from aggregate
 results only: sipscan_timeline.json, sipscan_check.json, sipscan_week_<peers>.json,
-sipscan_stream_<peers>.json, rev_nores.json, week_results.json, rev_tzneg.json, rev_negp.json.
+sipscan_stream_<peers>.json, rev_respeers.json, week_results.json, rev_tzneg.json, rev_negp.json.
 Then: latexmk -pdf docs/sipscan.tex"""
 import datetime, json, os, sys
 
@@ -101,8 +101,8 @@ def fig_timeline(m=100):
                                  gridspec_kw={"height_ratios": [1.0, 1.1], "hspace": 0.2})
     timeline_panel(a1, T, P)
     xs = np.arange(8) * 24 + 84                        # centre of each 7-day window
-    series = [("scan", "flag", BLUE, "o", "-", "two-null, residue-free peers"),
-              ("all", "flag", GREEN, "s", "-", "two-null, as deployed"),
+    series = [("scan", "flag", BLUE, "o", "-", "two-null, residue-free peers (default)"),
+              ("all", "flag", GREEN, "s", "-", "two-null, residue sources as peers"),
               ("scan", "flag_rot", ORANGE, "^", "--", "rotation null alone")]
     for p, key, col, mk, ls, lab in series:
         r = {x["w"]: x[key] for x in W[p]["by_window_size"] if x["m"] == m}
@@ -149,8 +149,8 @@ def fig_stream(tag="m30"):
     fig, (a1, a2) = plt.subplots(2, 1, figsize=(6.4, 3.9), sharex=True,
                                  gridspec_kw={"height_ratios": [0.8, 1.2], "hspace": 0.2})
     timeline_panel(a1, T, P)
-    series = [("scan", "flag", BLUE, "-", "two-null, residue-free peers"),
-              ("all", "flag", GREEN, "-", "two-null, as deployed"),
+    series = [("scan", "flag", BLUE, "-", "two-null, residue-free peers (default)"),
+              ("all", "flag", GREEN, "-", "two-null, residue sources as peers"),
               ("scan", "flag_rot", ORANGE, "--", "rotation null alone")]
     for p, key, col, ls, lab in series:
         for k, (hx, v) in enumerate(stream_series(S[p], tag, key).values()):
@@ -211,8 +211,9 @@ def steady_stats(S):
             "slice_updates": len(R), "rot_max": float(max(np.mean(v) for v in by.values()))}
 
 
-def deployed_stats(S):
-    """Replay with all port-5060 peers: most slices flagged after the onset and when; the update
+def respeers_stats(S):
+    """Replay with all port-5060 peers, residue sources included (the engine before this report):
+    most slices flagged after the onset and when; the update
     at which ORION's residue event enters the peer pool; restart updates flagged before and
     after it."""
     on = [r for r in S["rows"] if r["ev"] == "onset"]
@@ -274,7 +275,7 @@ def tables(Ws, Wa, P, N, P0, T0, NG):
             r" & & \multicolumn{3}{c}{$m=30$} & \multicolumn{3}{c}{$m=100$} & "
             r"\multicolumn{3}{c}{$m=1{,}000$} \\",
             r"\cmidrule(lr){3-5}\cmidrule(lr){6-8}\cmidrule(l){9-11}",
-            r"Window from & Holds & RF & Dep. & Rot. & RF & Dep. & Rot. & RF & Dep. & Rot. \\",
+            r"Window from & Holds & RF & RP & Rot. & RF & RP & Rot. & RF & RP & Rot. \\",
             r"\midrule"]
     for w in range(8):
         cells = []
@@ -290,7 +291,7 @@ def tables(Ws, Wa, P, N, P0, T0, NG):
             r" & \multicolumn{3}{c}{sipscan} & "
             r"\multicolumn{3}{c}{random groups} \\",
             r"\cmidrule(lr){2-4}\cmidrule(l){5-7}",
-            r"$m$ & RF & Dep. & Rot. & RF & Dep. & Rot. \\", r"\midrule"]
+            r"$m$ & RF & RP & Rot. & RF & RP & Rot. \\", r"\midrule"]
     for m in (10, 30, 100, 300, 1000):
         s = next(x for x in Ws["by_size"] if x["m"] == m)
         d = next(x for x in Wa["by_size"] if x["m"] == m)
@@ -307,14 +308,14 @@ def tables(Ws, Wa, P, N, P0, T0, NG):
 
     nc, tz = N["negctl_port"], N["negctl_country"]
     rows = [r"\begin{tabular}{@{}lrr@{}}", r"\toprule",
-            r" & Paper (as deployed) & Residue-free peers \\", r"\midrule",
-            r"Testable campaigns & %s & %s \\" % (num(N["testable_week"]), num(N["testable"])),
+            r" & Residue-free (default) & Residue sources \\", r"\midrule",
+            r"Testable campaigns & %s & %s \\" % (num(N["testable_week"]), num(N["testable_alt"])),
             r"Orchestrated (BH, $q=0.05$) & %s & %s \\" % (num(N["orchestrated_week"]),
-                                                          num(N["orchestrated_nores"])),
+                                                          num(N["orchestrated_alt"])),
             r"\quad flagged by both & %s & %s \\" % (num(N["both"]), num(N["both"])),
             r"\quad TCP / UDP & %s / %s & %s / %s \\" % (
-                num(N["by_proto_week"]["1"]), num(N["by_proto_week"]["2"]),
-                num(N["by_proto_nores"]["1"]), num(N["by_proto_nores"]["2"])),
+                num(N["by_proto_week"].get("1", 0)), num(N["by_proto_week"].get("2", 0)),
+                num(N["by_proto_alt"].get("1", 0)), num(N["by_proto_alt"].get("2", 0))),
             r"Same-port control: flagged / groups & %s / %s & %s / %s \\" % (
                 num(P0["flagged"]), num(P0["pseudo_campaigns"]), num(nc["flagged"]),
                 num(nc["pseudo_campaigns"])),
@@ -328,7 +329,7 @@ def tables(Ws, Wa, P, N, P0, T0, NG):
                 pct(T0["raw_p_lt_0.05"], 1), pct(T0["raw_p_lt_0.01"], 1),
                 pct(tz["raw_p_lt_0.05"], 1), pct(tz["raw_p_lt_0.01"], 1)),
             r"\bottomrule", r"\end{tabular}"]
-    tex("sipscan_tab_nores.tex", rows)
+    tex("sipscan_tab_peers.tex", rows)
 
 
 def numbers(T, Ck, Ws, Wa, Ss, Sa, N, P0, T0, P):
@@ -365,7 +366,7 @@ def numbers(T, Ck, Ws, Wa, Ss, Sa, N, P0, T0, P):
     M["OrionScanCountryList"] = ", ".join(Ws["orion_5060_countries_ge40"])
     M["OrionAllCountries"] = num(len(Wa["orion_5060_countries_ge40"]))
     M["SipFallbackPct"] = pct(np.mean([x["fallback"] for x in Ws["by_size"]]))
-    M["SipFallbackPctDep"] = pct(np.mean([x["fallback"] for x in Wa["by_size"]]))
+    M["SipFallbackPctRP"] = pct(np.mean([x["fallback"] for x in Wa["by_size"]]))
     M["SipCountryCovPct"] = pct(Ws["sip_share_cc_ge40_orion"], 1)
     M["SipTau"], M["SipTauRot"] = "%.4f" % Ws["bh_threshold"], "%.4f" % Ws["bh_threshold_rot"]
     M["WeekTested"] = num(Ws["week_tested"])
@@ -378,19 +379,19 @@ def numbers(T, Ck, Ws, Wa, Ss, Sa, N, P0, T0, P):
     M["SipEarlyMax"] = pct(max(early))
     M["SipRotEarlyMin"] = pct(min(x["flag_rot"] for x in Ws["by_window_size"]
                                   if x["w"] <= 1 and x["m"] >= 30))
-    M["SipDeployedMax"] = pct(max(x["flag"] for x in Wa["by_window_size"]))
+    M["SipRPMax"] = pct(max(x["flag"] for x in Wa["by_window_size"]))
     ck = sum(round(x["flag"] * x["tested"]) for x in Ws["controls_by_size"])
     ca = sum(round(x["flag"] * x["tested"]) for x in Wa["controls_by_size"])
     cn = sum(x["tested"] for x in Ws["controls_by_size"])
     M["SipCtlFlag"], M["SipCtlFlagPct"] = num(ck), pct(ck / cn, 1)
-    M["SipCtlFlagDep"], M["SipCtlFlagDepPct"] = num(ca), pct(ca / cn, 1)
+    M["SipCtlFlagRP"], M["SipCtlFlagRPPct"] = num(ca), pct(ca / cn, 1)
     M["SipCtlRotMax"] = pct(max(x["flag_rot"] for x in Ws["controls_by_size"]))
     M["SipCtlOwnBH"] = num(Ws["controls_bh_own"]["all"]["flagged"])
-    M["SipCtlOwnBHDep"] = num(Wa["controls_bh_own"]["all"]["flagged"])
+    M["SipCtlOwnBHRP"] = num(Wa["controls_bh_own"]["all"]["flagged"])
     M["SipCtlOwnBHRot"] = num(Ws["controls_bh_own"]["all"]["flagged_rot"])
     ob, oa = Ws["controls_bh_own"]["all"]["flagged"], Wa["controls_bh_own"]["all"]["flagged"]
     M["SipCtlOwnBHText"] = ("none is flagged with either peer set" if ob == oa == 0 else
-                            "%s are flagged with residue-free peers and %s as deployed"
+                            "%s are flagged with residue-free peers and %s with residue sources"
                             % (num(ob), num(oa)))
     M["SipCtlNactMed"] = num(np.median([x["nact_med"] for x in Ws["controls_by_size"]]))
     M["SipNactMed"] = num(np.median([x["nact_med"] for x in Ws["by_size"]]))
@@ -416,24 +417,23 @@ def numbers(T, Ck, Ws, Wa, Ss, Sa, N, P0, T0, P):
     M["SipSteadyFlagged"], M["SipSteadyUpdates"] = num(st["flagged"]), num(st["updates"])
     M["SipSteadySliceUpdates"] = num(st["slice_updates"])
     M["SipSteadyRotMax"] = pct(st["rot_max"])
-    d = deployed_stats(Sa)
-    M["SipDepOnsetMax"] = num(d["onset_max"])
-    M["SipDepOnsetAt"] = at(LANDMARK_H["onset"] + d["onset_max_h"] + 1)
-    M["SipDepBurst"] = at(LANDMARK_H["restart"] + d["burst_h"] + 1)
-    M["SipDepRestartAfter"] = num(d["restart_after_burst"])
-    M["SipDepRestartAfterText"] = ("never after it" if d["restart_after_burst"] == 0 else
+    d = respeers_stats(Sa)
+    M["SipRPOnsetMax"] = num(d["onset_max"])
+    M["SipRPOnsetAt"] = at(LANDMARK_H["onset"] + d["onset_max_h"] + 1)
+    M["SipRPBurst"] = at(LANDMARK_H["restart"] + d["burst_h"] + 1)
+    M["SipRPRestartAfter"] = num(d["restart_after_burst"])
+    M["SipRPRestartAfterText"] = ("never after it" if d["restart_after_burst"] == 0 else
                                    "in %s slice-updates after it" % num(d["restart_after_burst"]))
-    M["SipDepRestartBefore"] = pct(d["restart_before_burst"])
+    M["SipRPRestartBefore"] = pct(d["restart_before_burst"])
     M["SipReplayUpdates"] = num(len({(x["ev"], x["h"]) for x in Ss["rows"]}))
-    M["WeekOrch"], M["NoresOrch"] = num(N["orchestrated_week"]), num(N["orchestrated_nores"])
-    M["NoresBoth"], M["NoresDrop"], M["NoresGain"] = (num(N["both"]), num(N["week_only"]),
-                                                      num(N["nores_only"]))
-    M["NoresAdd"] = num(N["orchestrated_nores"] - N["orchestrated_week"])
-    M["NoresTestable"], M["WeekTestable"] = num(N["testable"]), num(N["testable_week"])
-    M["NoresNegN"], M["NoresNegFlag"] = (num(N["negctl_port"]["pseudo_campaigns"]),
-                                         num(N["negctl_port"]["flagged"]))
-    M["NoresTzN"], M["NoresTzFlag"] = (num(N["negctl_country"]["pseudo_campaigns"]),
-                                       num(N["negctl_country"]["flagged"]))
+    M["WeekOrch"], M["ResPeersOrch"] = num(N["orchestrated_week"]), num(N["orchestrated_alt"])
+    M["ResPeersBoth"], M["ResPeersOnlyRF"], M["ResPeersOnlyRP"] = (
+        num(N["both"]), num(N["week_only"]), num(N["alt_only"]))
+    M["ResPeersTestable"], M["WeekTestable"] = num(N["testable_alt"]), num(N["testable_week"])
+    M["ResPeersNegN"], M["ResPeersNegFlag"] = (num(N["negctl_port"]["pseudo_campaigns"]),
+                                               num(N["negctl_port"]["flagged"]))
+    M["ResPeersTzN"], M["ResPeersTzFlag"] = (num(N["negctl_country"]["pseudo_campaigns"]),
+                                             num(N["negctl_country"]["flagged"]))
     M["PaperNegN"], M["PaperTzN"] = num(P0["pseudo_campaigns"]), num(T0["pseudo_campaigns"])
     lines = ["\\newcommand{\\%s}{%s}" % (k, v) for k, v in sorted(M.items())]
     tex("sipscan_numbers.tex", lines)
@@ -444,7 +444,7 @@ def report():
     T, Ck = load("sipscan_timeline.json"), load("sipscan_check.json")
     Ws, Wa = load("sipscan_week_scan.json"), load("sipscan_week_all.json")
     Ss, Sa = load("sipscan_stream_scan.json"), load("sipscan_stream_all.json")
-    N = load("rev_nores.json")
+    N = load("rev_respeers.json")
     P0, T0 = load("week_results.json")["negative_control"], load("rev_tzneg.json")
     NG = load("rev_negp.json")
     P = phases(T)

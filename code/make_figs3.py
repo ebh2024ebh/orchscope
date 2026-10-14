@@ -278,18 +278,21 @@ def fig_week():
 
 
 # ------------------------------------------------------------------ Fig.: case study
-def fig_case():
+def fig_case(rows_max=120):
     p = os.path.join(AN, "week_case.json")
     if not os.path.exists(p):
         print("skip fig_case (no week_case.json)"); return
     panels = json.load(open(p))["panels"]
-    fig, axes = plt.subplots(1, len(panels), figsize=(3.5, 1.5), sharey=False)
+    # one row of four panels; every label prints at 8 pt
+    fig, axes = plt.subplots(1, 4, figsize=(3.5, 1.62), sharex=True)
     from matplotlib.colors import ListedColormap
     cmap = ListedColormap(["#ffffff", BLUE])
-    titles = {"orchestrated": "orchestrated", "surrogate": "rotation null",
-              "peers": "population null", "co-tooled": "co-tooled"}
-    for k, (ax, pn) in enumerate(zip(np.atleast_1d(axes), panels)):
+    titles = {"orchestrated": "orchestrated", "surrogate": "rotation",
+              "peers": "population", "co-tooled": "co-tooled"}
+    for k, (ax, pn) in enumerate(zip(axes.ravel(), panels)):
         M = np.array([[int(ch) for ch in r] for r in pn["rows"]], dtype=float)
+        if len(M) > rows_max:                    # every other bot (rows are sorted by onset)
+            M = M[np.linspace(0, len(M) - 1, rows_max).round().astype(int)]
         H = M.shape[1]
         # embed the bot x hour matrix unresampled (each cell a 3x3 pixel block), so every bot keeps its
         # own row and the raster exceeds 300 dpi at print size; the extent keeps cell coordinates
@@ -297,20 +300,20 @@ def fig_case():
                   vmin=0, vmax=1, extent=(-0.5, H - 0.5, M.shape[0] - 0.5, -0.5))
         for x in range(24, H, 24):
             ax.axvline(x - 0.5, color=GRID, lw=0.4)
-        ax.set_xticks(np.arange(12, H, 48))
-        ax.set_xticklabels([str(24 + d) for d in range(0, H // 24, 2)], fontsize=7)
+        ax.set_xticks(np.arange(12, H, 72))
+        ax.set_xticklabels([str(24 + d) for d in range(0, H // 24, 3)], fontsize=8)
         ax.tick_params(length=0, pad=1.5)
         ax.set_yticks([])
-        sub = "$T$=%.2f" % pn["T"] + ("" if pn["z"] is None else
-                                      ", $z$=" + ("%.0f" if abs(pn["z"]) >= 10 else "%.1f") % pn["z"])
+        sub = "$T$=%.2f" % pn["T"] + ("" if pn["z"] is None else ", $z$=" + (
+            "%.0f" if abs(pn["z"]) >= 10 else "%.1f") % pn["z"]).replace("-", "\u2212")
         ax.set_title("(%s) %s\n%s" % ("abcd"[k], titles.get(pn["kind"], pn["kind"]), sub),
-                     loc="left", fontsize=7, linespacing=1.1)
-        for s in ax.spines.values():
-            s.set_color(MUTED); s.set_linewidth(0.4)
+                     loc="left", fontsize=8, pad=2.5, linespacing=1.05)
+        for s_ in ax.spines.values():
+            s_.set_color(MUTED); s_.set_linewidth(0.4)
         if k == 0:
-            ax.set_ylabel("bots (by onset)", fontsize=7.2)
-    fig.text(0.5, -0.02, "day of September 2026 (UTC)", ha="center", fontsize=7.2, color=INK)
-    fig.tight_layout(w_pad=0.6)
+            ax.set_ylabel("bots (by onset)", fontsize=8, labelpad=2)
+    fig.text(0.5, -0.01, "day of September 2026 (UTC)", ha="center", fontsize=8, color=INK)
+    fig.tight_layout(w_pad=0.9)
     save(fig, "fig_case")
 
 

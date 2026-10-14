@@ -37,14 +37,15 @@ orchestrated campaign. This report tests it on one: the sipscan, a scan of the e
 for SIP servers that the Sality botnet ran under central command in February 2011, as captured by
 the UCSD Network Telescope and released by CAIDA. We replay the scan through ORION-sized views of
 that telescope, with the paper's test and decision threshold and with peers borrowed from ORION's
-port-5060 sources. With the port's scanners as peers, the engine flags the botnet within an hour
-of its onset and flags its restart at the first decision its weekly window allows, but not the
+port-5060 sources. The engine flags the botnet at the first or second hourly update after its
+onset and flags its restart at the first decision its weekly window allows, but not the
 \SipSteadyDays-day steady phase in between, whose timing matches independent scanning. Random
 groups of ORION's scanners are flagged \SipCtlFlag{} times in \SipCtlTotal. The replay also
-exposes a limitation: as deployed, the population null also draws peers from residue sources, and
-on ORION's port 5060, where \OrionResiduePct\% of the sources form one residue event, it can flag
-nothing. Excluding residue sources from the peer pools changes the paper's week from \WeekOrch{}
-to \NoresOrch{} orchestrated campaigns, and both of its negative controls still flag none.
+exposed a flaw of the engine's first version, which drew population-null peers from residue
+sources too: on ORION's port 5060, where \OrionResiduePct\% of the sources form one residue event,
+it could flag nothing. \sysname{} now excludes residue sources from its peer pools; admitting them
+would turn the paper's \WeekOrch{} orchestrated campaigns into \ResPeersOrch, and both of its
+negative controls flag none either way.
 \end{abstract}
 
 \section{Introduction}
@@ -105,8 +106,8 @@ synchrony should see; the steady phase in between is the hard case.
 \caption{Top: the sipscan as an ORION-sized telescope sees it, as distinct bots per hour in a /13
 of the UCSD /8 (mean of the 32 slices); dashed lines mark the onset, the decline, the restart and
 the stop. Bottom: share of 100-bot sub-campaigns flagged in each 7-day window (bars below the
-axis; points at their centres) by the two-null test with residue-free peers, by the two-null test
-with all port-5060 peers as deployed, and by the rotation null alone. Dotted lines: random groups
+axis; points at their centres) by the two-null test with residue-free peers (the default), by the
+two-null test with all port-5060 peers, residue sources included, and by the rotation null alone. Dotted lines: random groups
 of ORION's scanners, two-null test with residue-free peers and rotation null alone.}
 \label{fig:timeline}
 \end{figure}
@@ -154,9 +155,10 @@ from the paper's ORION week (September 24--30, 2026): the \OrionFive{} sources w
 is 5060. One event dominates that population: \OrionResidue{} of its sources (\OrionResiduePct\%)
 belong to groups that \sysname{} sets aside as residue, \OrionTopDest{} share one modal dark
 destination, and \OrionOneHour{} were active in the same single hour. \sysname{} never tests
-residue groups, but as deployed it still draws peers from their sources. We therefore run every
-experiment with two peer sets: all \OrionFive{} sources, as deployed (\emph{Dep.}), and the
-\OrionScanners{} sources outside residue groups (\emph{residue-free}, RF). Only
+residue groups, and it no longer draws peers from their sources either; its first version did,
+and this replay is why that changed. We therefore run every experiment with two peer sets: the
+\OrionScanners{} sources outside residue groups (\emph{residue-free}, RF), as \sysname{} now uses,
+and all \OrionFive{} sources, residue sources included (RP), as its first version did. Only
 \OrionScanCountries{} countries (\OrionScanCountryList) have 40 or more residue-free sources on the
 port, and they hold \SipCountryCovPct\% of the sipscan's bots, so for \SipFallbackPct\% of the
 bots the population null draws peers from the whole port. Both datasets keep UTC timestamps, so
@@ -168,7 +170,9 @@ A group is flagged if Benjamini--Hochberg (BH) at $q=0.05$~\cite{benjamini1995fd
 when its $p$-value joins the \WeekTested{} $p$-values that the paper's week tested, that is, if
 $p\le\SipTau$. For the rotation null alone, joining the week's rotation $p$-values, the threshold
 is $p\le\SipTauRot$. Each group thus faces the decision of a deployment in which the sipscan
-appears among ORION's real campaigns.
+appears among ORION's real campaigns. Each group, sipscan or control, joins the week's family
+alone, so the share of groups flagged is a per-test rate at the week's threshold, not the
+false-discovery proportion of one family that holds the sipscan and the controls together.
 
 \subsection{Experiment 1: weekly windows}
 We use \SipWindows{} weekly windows of 168 hours, starting at 00:00 on each day from January 31
@@ -187,7 +191,7 @@ $p$-values, as the paper's negative control does.
 
 \subsection{Experiment 3: hourly replay}
 \label{sec:replay}
-As deployed, \sysname{} updates its campaigns after every hourly batch over a weekly landmark
+In deployment, \sysname{} updates its campaigns after every hourly batch over a weekly landmark
 window; the test sees the most recent whole days ending at the current hour, and decisions start
 once two whole days exist. ORION's week starts on a Thursday, and so do the three windows we
 replay: from January 27, whose fifth day holds the onset; from February 3, which holds steady
@@ -198,20 +202,20 @@ and is testable while its port has at least as many peers as it has members. We 
 random 30-bot sub-campaign of it. The peers are the ORION sources active by the same hour of
 ORION's week, with their bitmaps cut to the same trailing days.
 
-\subsection{Experiment 4: residue-free peers on the paper's week}
-To measure what excluding residue sources from the peer pools would change in the paper, we
-re-test the week's \WeekTested{} campaigns with residue-free pools, on the pipeline's own
-per-campaign surrogate seeds, and re-run both negative controls of the paper (same port; same
-port and country).
+\subsection{Experiment 4: residue peers on the paper's week}
+To measure what excluding residue sources from the peer pools changes in the paper, we re-test
+the week's \WeekTested{} campaigns with residue sources admitted as peers, as the first version
+did, on the pipeline's own per-campaign surrogate seeds, and re-run both negative controls of the
+paper (same port; same port and country) with those pools.
 
 \section{Results}
 \label{sec:results}
 
 \subsection{Weekly windows}
 Table~\ref{tab:windows} and Fig.~\ref{fig:timeline} (bottom) give the flagged share per window.
-With all port-5060 sources as peers, as deployed, no sipscan sub-campaign is flagged in any window
-or at any size (\SipDeployedMax\%): against peers this synchronized, the population null cannot
-reject. With residue-free peers, the two-null test flags the sipscan in the windows where its bots
+With all port-5060 sources as peers, residue sources included, no sipscan sub-campaign is flagged
+in any window or at any size (\SipRPMax\%): against peers this synchronized, the population null
+cannot reject. With residue-free peers, the two-null test flags the sipscan in the windows where its bots
 switched on and off: \SipSevenThirty\% of 30-bot and \SipSevenHundred\% of 100-bot sub-campaigns
 in the window from February 7, which holds the restart and the stop but no steady scanning, and
 \SipSixThirty--\SipSixThousand\% in the window from February 6. In the four windows that the
@@ -224,8 +228,8 @@ the window.
 \begin{table}[t]
 \centering
 \caption{Sipscan sub-campaigns flagged per 7-day window, in percent of \SipPerCell{} per cell: the
-two-null test with residue-free peers (RF) and with all port-5060 peers as deployed (Dep.), and
-the rotation null alone (Rot.). ``Holds'': phases of the scan inside the window.}
+two-null test with residue-free peers (RF, the default) and with all port-5060 peers, residue
+sources included (RP), and the rotation null alone (Rot.). ``Holds'': phases of the scan inside the window.}
 \label{tab:windows}
 \small
 \setlength{\tabcolsep}{3.6pt}
@@ -242,8 +246,8 @@ on.
 \subsection{Negative controls}
 Table~\ref{tab:sizes} pools the windows by size. Random groups of ORION's port-5060 scanners are
 flagged \SipCtlFlag{} times in \SipCtlTotal{} (\SipCtlFlagPct\%) with residue-free peers and
-\SipCtlFlagDep{} times (\SipCtlFlagDepPct\%) as deployed. With BH applied to the controls alone, as
-in the paper, \SipCtlOwnBHText. The rotation null alone flags up
+\SipCtlFlagRP{} times (\SipCtlFlagRPPct\%) with residue sources as peers. With BH applied to the
+controls alone, as in the paper, \SipCtlOwnBHText. The rotation null alone flags up
 to \SipCtlRotMax\% of them at the deployment threshold, and \SipCtlOwnBHRot{} of \SipCtlTotal{}
 under their own BH: alone, it cannot tell the sipscan from the port's independent scanners. The
 controls' members are mostly always-on scanners (median \SipCtlNactMed{} active hours of 168,
@@ -253,8 +257,8 @@ against \SipNactMed{} for the sipscan's bots), as is the port's residue-free pop
 \centering
 \caption{Flagged share in percent, over all eight windows, by group size: sipscan sub-campaigns
 (``sipscan'') and random groups of ORION's residue-free port-5060 sources, under the same test, peers and
-threshold (RF: residue-free peers; Dep.: all port-5060 peers, as deployed; Rot.: rotation null
-alone).}
+threshold (RF: residue-free peers, the default; RP: all port-5060 peers, residue sources
+included; Rot.: rotation null alone).}
 \label{tab:sizes}
 \small
 \input{sipscan_tab_sizes}
@@ -275,11 +279,11 @@ comes at \SipRestartFirstUpdate, \SipRestartDelay{} hours after it; that decisio
 sub-campaigns in \SipRestartFirst{} of \SipRestartSlices{} slices, while the whole campaign is by
 then undetermined.
 
-As deployed, with all port-5060 peers, the onset is flagged in at most \SipDepOnsetMax{} of 32
-slices (at \SipDepOnsetAt). The restart is flagged in \SipDepRestartBefore\% of slice-updates until
-\SipDepBurst, the hour of ORION's week at which its residue event enters the peer pool, and
-\SipDepRestartAfterText. That the restart's first decisions precede the event is a
-coincidence of aligning 2011 with ORION's week.
+With residue sources as peers, the onset is flagged in at most \SipRPOnsetMax{} of 32 slices (at
+\SipRPOnsetAt). The restart is flagged in \SipRPRestartBefore\% of slice-updates until
+\SipRPBurst, the hour of ORION's week at which its residue event enters the peer pool, and
+\SipRPRestartAfterText. That the restart's first decisions precede the event is a coincidence of
+aligning 2011 with ORION's week.
 
 \begin{figure}[t]
 \centering
@@ -290,28 +294,31 @@ windows; shaded: the first two days of each window, when no decision is made.}
 \label{fig:stream}
 \end{figure}
 
-\subsection{Residue-free peers on the paper's week}
-Table~\ref{tab:nores} re-tests the paper's week with residue-free peer pools. Fewer campaigns are
-testable (\NoresTestable{} instead of \WeekTestable), since some ports lose peers, and
-\NoresOrch{} campaigns are orchestrated instead of \WeekOrch: \NoresBoth{} are flagged either way,
-\NoresDrop{} only as deployed and \NoresGain{} only with residue-free peers. Both negative controls
-still flag none, with practically unchanged uncorrected rejection rates.
+\subsection{Residue peers on the paper's week}
+Table~\ref{tab:peers} compares the paper's week with the same week re-tested with residue sources
+admitted as peers. Residue-free pools leave fewer campaigns testable (\WeekTestable{} instead of
+\ResPeersTestable), since some ports lose peers, and \WeekOrch{} campaigns orchestrated instead of
+\ResPeersOrch: \ResPeersBoth{} are flagged either way, \ResPeersOnlyRF{} only with residue-free
+peers and \ResPeersOnlyRP{} only with residue peers. Both negative controls flag none either way,
+with practically unchanged uncorrected rejection rates.
 
 \begin{table}[t]
 \centering
-\caption{The paper's week re-tested with residue-free peer pools, on the pipeline's own surrogate
-draws, and the paper's two negative controls re-run with those pools.}
-\label{tab:nores}
+\caption{The paper's week (residue-free peers, the default) and the same week re-tested with
+residue sources admitted as peers, on the pipeline's own surrogate draws, with the paper's two
+negative controls run with each pool.}
+\label{tab:peers}
 \small
-\input{sipscan_tab_nores}
+\input{sipscan_tab_peers}
 \end{table}
 
 \section{What the Sipscan Shows}
 \label{sec:meaning}
 
 \paragraph{The engine detects commanded synchrony.} The two-null test flags a real
-C\&C-orchestrated campaign where the C\&C switched its bots on or off together: within an hour of
-the sipscan's onset at ORION's scale, and at the first decision after its restart. This is the
+C\&C-orchestrated campaign where the C\&C switched its bots on or off together: at the first or
+second hourly update after the sipscan's onset at ORION's scale, and at the first decision after
+its restart. This is the
 synchrony the test is built to find, and the replay shows it on a real botnet rather than a
 simulated one.
 
@@ -327,18 +334,20 @@ the orchestration flag, so ``not orchestrated'' means ``no evidence of synchrony
 \SipCtlRotMax\% of random groups of the port's scanners, as the paper's negative controls found
 across all ports.
 
-\paragraph{Peer pools should exclude residue sources.} As deployed, the population null includes
-them. On a port that one residue event dominates, it then compares every campaign with peers more
-synchronized than any scanner, and here it hid every sipscan sub-campaign. Excluding residue
-sources keeps both of the paper's negative controls clean and changes its week by \NoresAdd{}
-orchestrated campaigns (Table~\ref{tab:nores}).
+\paragraph{Peer pools must exclude residue sources.} The engine's first version included them. On
+a port that one residue event dominates, it then compared every campaign with peers more
+synchronized than any scanner, and here it hid every sipscan sub-campaign. \sysname{} now excludes
+them, which keeps both of the paper's negative controls clean and changes its week from
+\ResPeersOrch{} to \WeekOrch{} orchestrated campaigns (Table~\ref{tab:peers}).
 
 \section{Threats to Validity}
 \label{sec:threats}
 
 \paragraph{Transplanted peers.} The peers come from ORION in 2026 and the sipscan from UCSD in
 2011; their port-5060 populations differ, and the residue event of ORION's week is specific to
-that week. Other peer populations could change the results.
+that week. The pairing strains only the population null, whose exchangeability assumes peers
+active in the same weeks as the bots; the rotation null uses each bot's own activity. Other peer
+populations could change the results.
 
 \paragraph{Sub-campaigns.} The tested groups are random subsets of one botnet, not groups formed by
 \sysname's blocking and clustering, which the dataset cannot exercise; taken whole, the campaign is
@@ -349,7 +358,7 @@ replicates; the flagged shares describe the spread across views, not independent
 
 \paragraph{One campaign, one scale.} All results hold for one campaign and one telescope size
 (/13). Weekly windows align hours of the day between 2011 and 2026, and the replay also aligns
-days of the week; the as-deployed restart result depends on that alignment.
+days of the week; the restart result with residue peers depends on that alignment.
 
 \section{Reproduction and Data Use}
 \label{sec:repro}
@@ -359,7 +368,8 @@ All code and aggregate results are in the OrchScope repository,
 \begin{itemize}
 \item \path{code/sipscan_eval.py}: the analysis, with subcommands \texttt{prep}, \texttt{check},
 \texttt{week} and \texttt{stream}, run next to the paper's week profiles (Experiments 1--3);
-\item \texttt{code/revision\_checks.py nores}: Experiment~4;
+\item \texttt{code/revision\_checks.py respeers}: Experiment~4 (\texttt{PEER\_NORES=0} runs the
+whole pipeline with residue peers);
 \item \path{code/sipscan_timeline.py}: the hourly counts of Fig.~\ref{fig:timeline};
 \item \path{code/sipscan_doc.py}: this report's figures, tables and numbers, from the aggregate
 results in \path{results/}; no number is typed by hand.

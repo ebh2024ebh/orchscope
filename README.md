@@ -10,7 +10,7 @@ well-defined scanning campaigns with calibrated orchestration decisions. It has 
 |---|---|---|
 | Profiling | per-source randomness, trend, and dispersion statistics plus a packet-header fingerprint, from flow records with at most three packet samples | `code/engine.py` (`profile`) |
 | Inference | fingerprint-blocked HDBSCAN-eps campaigns; groups whose members converge on one dark address are set aside as residue | `code/engine.py` (`enhanced_infer`) |
-| Orchestration | two-null synchrony test (whole-day rotation null and a peer null matched on port, country, and activity), exact Monte Carlo p-values, intersection-union decision, Benjamini-Hochberg | `code/engine.py` (`sync_test`) |
+| Orchestration | two-null synchrony test (whole-day rotation null and a peer null matched on port, country, and activity, without residue sources), exact Monte Carlo p-values, intersection-union decision, Benjamini-Hochberg | `code/engine.py` (`sync_test`) |
 | AI decision | typed questions to the open-weights openjev decision model | `code/openjev_judge.py` |
 
 A data-host reducer (`code/camp_reduce.py`, standard library only) turns each hourly ORION file
@@ -83,6 +83,7 @@ Settings (environment variables read by `code/engine.py`):
 | `PEER_RATIO` | `1` | a campaign is testable if its port has this many times as many non-member sources |
 | `PEER_KEY` | `top1` | peer population: primary port |
 | `PEER_CC` | `1` | peers also match each member's country (shared time zone), where 40 or more exist |
+| `PEER_NORES` | `1` | peers never include sources of residue groups (`0`: the first version, which drew them too; see `docs/sipscan.pdf`) |
 | `TEST_PROCS` | `24` | worker processes testing campaigns in parallel (each campaign has its own seed, so results do not depend on this) |
 
 The AI decision engine and `week_orch.py`, `week_extras.py`, and `openjev_sim.py` query openjev
