@@ -79,7 +79,7 @@ def fig_arch():
                [r"$x_i \in \mathrm{ℝ}^d \cdot f_i \cdot \pi_i \cdot a_i$"],
                [r"groups ($\pi$, $f$, mode)", "residue set aside"],
                [r"exact Monte Carlo $p$", r"$\max(p_{\rm rot}, p_{\rm pop})$ → BH"],
-               ["service · tool ·", "coordination · strategy"]]
+               ["service label", "per new campaign"]]
     with plt.rc_context(rc):
         fig = plt.figure(figsize=(ARCH_W / 72, ARCH_H / 72), dpi=72)
         ax = fig.add_axes([0, 0, 1, 1]); ax.axis("off")
