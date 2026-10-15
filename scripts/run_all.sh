@@ -39,6 +39,8 @@ PEER_CC=0 $PY -W ignore "$CODE/revision_checks.py" tzneg --out rev_tzneg_port.js
 $PY -W ignore "$CODE/revision_checks.py" fallback  # -> rev_fallback.json (port-only fallback share)
 $PY -W ignore "$CODE/revision_checks.py" stage3    # -> rev_stage3.json (what the 10^4 stage adds)
 $PY -W ignore "$CODE/revision_checks.py" respeers  # -> rev_respeers.json (residue sources as peers)
+$PY -W ignore "$CODE/pipectl.py" fallback      # -> pipectl.json (port-only campaigns undetermined)
+$PY -W ignore "$CODE/pipectl.py" resample      # -> pipectl.json (pipeline-level negative control)
 
 # 5. case study, largest orchestrated campaigns, openjev labels, drift, demo data
 $PY -W ignore "$CODE/case_study.py"                # -> week_case.json
