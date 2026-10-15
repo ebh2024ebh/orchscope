@@ -342,7 +342,8 @@ def fig_rt():
     b.plot(h, scan, color=BLUE, lw=1.2, marker="o", ms=2.3, label="scanning campaigns")
     b.plot(h, s.orchestrated, color=ORANGE, lw=1.2, marker="^", ms=2.3, ls="--",
            label="orchestrated")
-    b.set_ylim(0, 1.5 * float(scan.max()))
+    b.set_yscale("log")                     # orchestrated campaigns are ~10x fewer than scanning ones
+    b.set_ylim(0.5 * float(s.orchestrated.min()), 8 * float(scan.max()))
     b.legend(frameon=False, ncol=2, loc="upper left", fontsize=6.3, handlelength=1.6,
              borderaxespad=0.1)
     b.set_ylabel("count"); b.set_xlabel("hour of Sep. 30 (UTC)")
